@@ -75,6 +75,9 @@ const btnRedo = document.getElementById('btn-redo');
 const btnSave = document.getElementById('btn-save');
 const btnExportCsv = document.getElementById('btn-export-csv');
 const btnDelete = document.getElementById('btn-delete');
+const modalClear = document.getElementById('modal-clear');
+const modalClearYes = document.getElementById('modal-clear-yes');
+const modalClearNo = document.getElementById('modal-clear-no');
 const fileLoad = document.getElementById('file-load');
 
 const propsEmpty = document.getElementById('props-empty');
@@ -86,7 +89,6 @@ const rowTrackMode = document.getElementById('row-trackmode');
 const pTrackMode = document.getElementById('p-trackmode');
 
 const rowCameraColor = document.getElementById('row-camera-color');
-const rowColorPicker = document.getElementById('row-color-picker');
 const cameraPalette = document.getElementById('camera-palette');
 
 
@@ -98,7 +100,7 @@ const P = {
   x: document.getElementById('p-x'),
   y: document.getElementById('p-y'),  sx: document.getElementById('p-sx'),
   sy: document.getElementById('p-sy'),
-  color: document.getElementById('p-color'),  h: document.getElementById('p-h'),  shotNumber: document.getElementById('p-shotNumber'),
+  shotNumber: document.getElementById('p-shotNumber'),
   shotType: document.getElementById('p-shotType'),
   lens: document.getElementById('p-lens'),
   nickname: document.getElementById('p-nickname'),
@@ -108,7 +110,6 @@ const P = {
   setupNumber: document.getElementById('p-setupNumber'),
   cameraSupport: document.getElementById('p-cameraSupport'),
 };
-const pColor = P.color;
 
 
 const STORAGE_KEY = 'shot-designer-vanilla-scene-v1';
@@ -471,6 +472,53 @@ function deleteSelected(){
   saveToStorage();
   draw();
 }
+
+function clearAll(){
+  if (state.elements.length === 0) return;
+  pushHistory();
+  state.elements = [];
+  state.selectedId = null;
+  syncPropsUI();
+  syncButtons();
+  saveToStorage();
+  draw();
+}
+
+function openClearModal(){
+  if (!modalClear) return;
+  modalClear.setAttribute('aria-hidden','false');
+}
+
+function closeClearModal(){
+  if (!modalClear) return;
+  modalClear.setAttribute('aria-hidden','true');
+}
+
+function onDeletePressed(){
+  if (state.selectedId){
+    deleteSelected();
+    return;
+  }
+  if (state.elements.length === 0) return;
+  openClearModal();
+}
+
+// Modal wiring
+if (modalClear){
+  closeClearModal();
+  modalClear.addEventListener('click', (e)=>{
+    const t = e.target;
+    if (t && t.getAttribute && t.getAttribute('data-close') === '1') closeClearModal();
+  });
+}
+if (modalClearNo) modalClearNo.addEventListener('click', closeClearModal);
+if (modalClearYes) modalClearYes.addEventListener('click', ()=>{
+  closeClearModal();
+  clearAll();
+});
+window.addEventListener('keydown', (e)=>{
+  if (e.key === 'Escape') closeClearModal();
+});
 
 // ---------- Coordinate transforms ----------
 function resizeCanvasToDisplaySize(){
@@ -1128,7 +1176,7 @@ document.querySelectorAll('[data-add]').forEach(btn=>{
   });
 });
 
-btnDelete.addEventListener('click', deleteSelected);
+btnDelete.addEventListener('click', onDeletePressed);
 
 btnUndo.addEventListener('click', undo);
 btnRedo.addEventListener('click', redoDo);
@@ -1163,37 +1211,6 @@ btnExportCsv.addEventListener('click', ()=>{ exportToExcel(); });
 
 // Track direction (to / from / between)
 
-// Color picker: single source of truth.
-// - Parent cameras/characters own the color.
-// - Track targets always inherit parent color (and editing a target edits the parent).
-if (pColor){
-  pColor.addEventListener('input', ()=>{
-    const el = getSelected();
-    if (!el) return;
-
-    const owner = getColorOwner(el);
-    if (!owner) return;
-
-    // only these types support color
-    if (!(owner.type === 'camera' || owner.type === 'character')) return;
-
-    pushHistory();
-    owner.color = pColor.value;
-
-    // keep linked target in sync immediately (for saved JSON + any code paths that read tgt.color)
-    if (owner.trackToId){
-      const tgt = state.elements.find(e => e.id === owner.trackToId);
-      if (tgt){
-        tgt.color = owner.color;
-        if (!tgt.parentId) tgt.parentId = owner.id;
-      }
-    }
-
-    saveToStorage();
-    syncPropsUI(true);
-    draw();
-  });
-}
 
 if (pTrackMode)if (pTrackMode){
   pTrackMode.addEventListener('change', () => {
@@ -1248,7 +1265,7 @@ function downloadBlob(blob, filename){
 function syncButtons(){
   btnUndo.disabled = history.length === 0;
   btnRedo.disabled = redo.length === 0;
-  btnDelete.disabled = !state.selectedId;
+  btnDelete.disabled = state.selectedId ? false : (state.elements.length === 0);
 }
 
 function syncPropsUI(skipFocusPreserve=false){
@@ -1281,9 +1298,7 @@ function syncPropsUI(skipFocusPreserve=false){
     if (rowTrackMode) rowTrackMode.classList.remove('hidden');
     // Allow recoloring the track-to camera icon
     if (rowCameraColor) rowCameraColor.classList.remove('hidden');
-    if (rowColorPicker) rowColorPicker.classList.remove('hidden');
     const owner = getColorOwner(el);
-    if (pColor) pColor.value = ((owner?.color) || '#111111');
     syncPaletteSelection(owner?.color);
 
     const parent = state.elements.find(e => (e.type === 'camera' || e.type === 'character') && e.trackToId === el.id);
@@ -1306,23 +1321,15 @@ propsForm.classList.remove('hidden');
   const allRows = propsForm.querySelectorAll('.row, .grid2, #camera-fields');
   allRows.forEach(r=>r.classList.remove('hidden'));
 
-  // Color: unified control.
-// - Cameras/characters (and their track targets) use palette + picker, editing the parent.
-// - Other items use the picker on the selected element.
+  // Color (palette only)
   const owner = getColorOwner(el);
-
-  if (rowCameraColor && rowColorPicker){
+  if (rowCameraColor){
     const ownerIsColorable = owner && (owner.type === 'camera' || owner.type === 'character');
-
     if (ownerIsColorable){
       rowCameraColor.classList.remove('hidden');
-      rowColorPicker.classList.remove('hidden');
-      if (pColor) pColor.value = (owner.color || '#111111');
       syncPaletteSelection(owner.color);
     } else {
       rowCameraColor.classList.add('hidden');
-      rowColorPicker.classList.remove('hidden');
-      if (pColor) pColor.value = (el.color || '#111111');
       syncPaletteSelection(null);
     }
   }
@@ -1413,7 +1420,6 @@ bindPropInput(P.x, ()=>({x: Number(P.x.value)}));
 bindPropInput(P.y, ()=>({y: Number(P.y.value)}));
 bindPropInput(P.sx, ()=>({scaleX: clamp(Number(P.sx.value), 0.1, 10)}));
 bindPropInput(P.sy, ()=>({scaleY: clamp(Number(P.sy.value), 0.1, 10)}));
-bindPropInput(P.color, ()=>({color: P.color.value}));
 
 bindPropInput(P.shotNumber, ()=>({shotNumber: P.shotNumber.value}));
 bindPropInput(P.shotType, ()=>({shotType: P.shotType.value}));

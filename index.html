@@ -163,7 +163,7 @@
 
           
     <div class="row hidden" id="row-camera-color">
-      <label>Primary Color</label>
+      <label>Color</label>
       <div class="palette" id="camera-palette">
         <button type="button" class="swatch" data-color="#ef4444"></button>
         <button type="button" class="swatch" data-color="#f97316"></button>
@@ -178,12 +178,6 @@
         <button type="button" class="swatch" data-color="#ffffff"></button>
       </div>
     </div>
-
-    <div class="row" id="row-color-picker">
-      <label>Color</label>
-      <input id="p-color" type="color" />
-    </div>
-
           <div class="row hidden" id="row-trackto">
             <label></label>
             <button type="button" id="btn-trackto" class="primarybtn">Track To...</button>
@@ -202,6 +196,21 @@
       </div>
     </aside>
   </main>
+
+
+  <!-- Clear All Modal -->
+  <div id="modal-clear" class="sp-modal" aria-hidden="true">
+    <div class="sp-modal-backdrop" data-close="1"></div>
+    <div class="sp-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="modal-clear-title">
+      <div class="sp-modal-title" id="modal-clear-title">Clear everything?</div>
+      <div class="sp-modal-body">This will delete all items on the canvas. This can be undone.</div>
+      <div class="sp-modal-actions">
+        <button id="modal-clear-no" class="btn">Cancel</button>
+        <button id="modal-clear-yes" class="btn danger">Yes, clear all</button>
+      </div>
+    </div>
+  </div>
+
 
   <script type="module" src="./app.js"></script>
 </body>

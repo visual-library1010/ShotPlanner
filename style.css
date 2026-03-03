@@ -247,3 +247,18 @@ body{
 }
 .primarybtn:hover{ filter: brightness(1.05); }
 .primarybtn:active{ transform: translateY(1px); }
+
+
+/* --- Modal (Clear All) --- */
+.sp-modal{ position:fixed; inset:0; display:none; z-index:9999; }
+.sp-modal[aria-hidden="false"]{ display:block; }
+.sp-modal-backdrop{ position:absolute; inset:0; background:rgba(0,0,0,.45); }
+.sp-modal-dialog{ position:relative; margin:10vh auto 0; width:min(520px, calc(100vw - 32px)); background:#fff; border-radius:14px; padding:16px; box-shadow:0 10px 30px rgba(0,0,0,.25); }
+.sp-modal-title{ font-size:18px; font-weight:700; margin-bottom:8px; }
+.sp-modal-body{ font-size:14px; line-height:1.35; opacity:.9; margin-bottom:14px; }
+.sp-modal-actions{ display:flex; justify-content:flex-end; gap:10px; }
+
+.btn{ border:1px solid rgba(0,0,0,.18); background:#fff; padding:8px 12px; border-radius:10px; cursor:pointer; font-weight:600; }
+.btn:hover{ filter:brightness(.98); }
+.btn:active{ transform:translateY(1px); }
+.btn.danger{ border-color:rgba(200,0,0,.35); background:rgba(220,0,0,.10); }
