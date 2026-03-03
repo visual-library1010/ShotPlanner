@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Shot Designer (Vanilla)</title>
+  <title>Shot Planner (Vanilla)</title>
   <link rel="stylesheet" href="./style.css" />
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet" />
 </head>
@@ -11,7 +11,7 @@
   <header class="topbar">
   <div class="brand-pill">
     <div class="brand-badge">SD</div>
-    <div class="brand-text">Shot Designer</div>
+    <div class="brand-text">Shot Planner</div>
   </div>
 
   <div class="action-pill">
@@ -183,9 +183,22 @@
       <label>Color</label>
       <input id="p-color" type="color" />
     </div>
-    
 
-          </form>
+          <div class="row hidden" id="row-trackto">
+            <label></label>
+            <button type="button" id="btn-trackto" class="primarybtn">Track To...</button>
+          </div>
+
+          <div class="row hidden" id="row-trackmode">
+            <label for="p-trackmode">Track</label>
+            <select id="p-trackmode">
+              <option value="to">Track to</option>
+              <option value="from">Track from</option>
+              <option value="between">Track between</option>
+            </select>
+          </div>
+
+</form>
       </div>
     </aside>
   </main>

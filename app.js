@@ -1,4 +1,4 @@
-// Shot Designer (Vanilla) — single-file app logic.
+// Shot Planner (Vanilla) — single-file app logic.
 // No build step. Works on GitHub Pages.
 
 const canvas = document.getElementById('scene');
@@ -16,6 +16,10 @@ const fileLoad = document.getElementById('file-load');
 const propsEmpty = document.getElementById('props-empty');
 const propsForm = document.getElementById('props-form');
 const cameraFields = document.getElementById('camera-fields');
+const rowTrackTo = document.getElementById('row-trackto');
+const btnTrackTo = document.getElementById('btn-trackto');
+const rowTrackMode = document.getElementById('row-trackmode');
+const pTrackMode = document.getElementById('p-trackmode');
 
 const rowCameraColor = document.getElementById('row-camera-color');
 const rowColorPicker = document.getElementById('row-color-picker');
@@ -249,6 +253,23 @@ function addElement(type){
 function deleteSelected(){
   if (!state.selectedId) return;
   pushHistory();
+
+  const sel = getSelected();
+
+  // If deleting a camera, also delete its track target (if any)
+  if (sel && sel.type === 'camera' && sel.trackToId){
+    const tid = sel.trackToId;
+    state.elements = state.elements.filter(e => e.id !== tid);
+  }
+
+  // If deleting a track target, unlink its parent camera
+  if (sel && sel.type === 'trackTarget' && sel.parentId){
+    const parent = state.elements.find(e => e.id === sel.parentId);
+    if (parent && parent.type === 'camera' && parent.trackToId === sel.id){
+      parent.trackToId = null;
+    }
+  }
+
   state.elements = state.elements.filter(e => e.id !== state.selectedId);
   state.selectedId = null;
   syncPropsUI();
@@ -301,7 +322,7 @@ function drawGrid(){
     ctx.beginPath();
     ctx.moveTo(x, 0);
     ctx.lineTo(x, h);
-    ctx.stroke();
+ctx.stroke();
   }
   for (let y = oy; y < h; y += spacing){
     ctx.beginPath();
@@ -309,6 +330,82 @@ function drawGrid(){
     ctx.lineTo(w, y);
     ctx.stroke();
   }
+  ctx.restore();
+}
+
+
+function drawTrackArrows(){
+  const dpr = window.devicePixelRatio || 1;
+  ctx.save();
+  ctx.lineWidth = 3 * dpr;
+  ctx.strokeStyle = 'rgba(17,17,17,0.55)';
+  ctx.fillStyle = 'rgba(17,17,17,0.55)';
+
+  for (const cam of state.elements){
+    if (cam.type !== 'camera' || !cam.trackToId) continue;
+    const target = state.elements.find(e => e.id === cam.trackToId);
+    if (!target) continue;
+
+    const a = worldToScreen(cam.x, cam.y);
+    const b = worldToScreen(target.x, target.y);
+
+    const ax = a.x * dpr, ay = a.y * dpr;
+    const bx = b.x * dpr, by = b.y * dpr;
+
+    
+    const mode = cam.trackMode || 'to';
+
+// Line + arrowheads (with gaps from both camera icons)
+    const dx = bx - ax;
+    const dy = by - ay;
+    const len = Math.hypot(dx, dy) || 1;
+    const ux = dx / len;
+    const uy = dy / len;
+
+    const headLen = 12 * dpr;
+    const headAng = Math.PI / 7;
+
+    const iconGap = 24 * dpr;
+
+    const needsHeadAtEnd = (mode === 'to' || mode === 'between');
+    const needsHeadAtStart = (mode === 'from' || mode === 'between');
+
+    const gapStart = iconGap + (needsHeadAtStart ? headLen : 0);
+    const gapEnd   = iconGap + (needsHeadAtEnd   ? headLen : 0);
+
+    const sx = ax + ux * gapStart;
+    const sy = ay + uy * gapStart;
+    const ex = bx - ux * gapEnd;
+    const ey = by - uy * gapEnd;
+
+    ctx.beginPath();
+    ctx.moveTo(sx, sy);
+    ctx.lineTo(ex, ey);
+    ctx.stroke();
+
+    // Arrowhead at end (toward target)
+    if (needsHeadAtEnd){
+      const angleEnd = Math.atan2(ey - sy, ex - sx);
+      ctx.beginPath();
+      ctx.moveTo(ex, ey);
+      ctx.lineTo(ex - headLen * Math.cos(angleEnd - headAng), ey - headLen * Math.sin(angleEnd - headAng));
+      ctx.lineTo(ex - headLen * Math.cos(angleEnd + headAng), ey - headLen * Math.sin(angleEnd + headAng));
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // Arrowhead at start (toward source)
+    if (needsHeadAtStart){
+      const angleStart = Math.atan2(sy - ey, sx - ex); // pointing from line toward start
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(sx - headLen * Math.cos(angleStart - headAng), sy - headLen * Math.sin(angleStart - headAng));
+      ctx.lineTo(sx - headLen * Math.cos(angleStart + headAng), sy - headLen * Math.sin(angleStart + headAng));
+      ctx.closePath();
+      ctx.fill();
+    }
+}
+
   ctx.restore();
 }
 
@@ -320,6 +417,9 @@ function draw(){
   const h = rect.height * dpr;
 
   ctx.clearRect(0,0,w,h);
+
+  // camera movement arrows
+  drawTrackArrows();
 
   // world->screen handled manually per element for easier hit tests
   for (const el of state.elements){
@@ -379,7 +479,7 @@ ctx.fillStyle = el.color || '#999';
     ctx.lineTo(r,0);
     ctx.stroke();
   }
-  else if (el.type === 'camera'){
+  else if (el.type === 'camera' || el.type === 'trackTarget'){
     const size = (Math.max(el.width||52, el.height||52)) * el.scaleX * view.scale * dpr;
     const s = size/2;
 
@@ -854,6 +954,76 @@ fileLoad.addEventListener('change', async ()=>{
 });
 
 btnExportCsv.addEventListener('click', ()=>{ exportToExcel(); });
+
+// Track direction (to / from / between)
+if (pTrackMode){
+  pTrackMode.addEventListener('change', () => {
+    const el = getSelected();
+    if (!el) return;
+
+    // If selecting the target, update its parent camera
+    if (el.type === 'trackTarget'){
+      const parentCam = state.elements.find(e => e.type === 'camera' && e.trackToId === el.id);
+      if (!parentCam) return;
+      parentCam.trackMode = pTrackMode.value;
+      saveToStorage();
+      draw();
+      return;
+    }
+
+    if (el.type !== 'camera') return;
+    el.trackMode = pTrackMode.value;
+    saveToStorage();
+    draw();
+  });
+}
+
+// Track To... (camera movement target)
+if (btnTrackTo){
+  btnTrackTo.addEventListener('click', () => {
+    const cam = getSelected();
+    if (!cam || cam.type !== 'camera') return;
+
+    // If already has a target, select it (or recreate if missing)
+    if (cam.trackToId){
+      const existing = state.elements.find(e => e.id === cam.trackToId);
+      if (existing){
+        state.selectedId = existing.id;
+        syncPropsUI();
+        draw();
+        return;
+      }
+    }
+
+    pushHistory();
+
+    const id = `trk-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`;
+    const target = {
+      id,
+      type: 'trackTarget',
+      x: cam.x + 120,
+      y: cam.y,
+      rotation: cam.rotation || 0,
+      scaleX: 1,
+      scaleY: 1,
+      color: cam.color || '#1c1917',
+      width: 44,
+      height: 44,
+      parentId: cam.id,
+    };
+
+    state.elements.push(target);
+    cam.trackToId = id;
+    cam.trackMode = cam.trackMode || 'to';
+
+    state.selectedId = id;
+    syncPropsUI();
+    syncButtons();
+    saveToStorage();
+    draw();
+  });
+}
+
 function csvEscape(v){
   const s = String(v ?? '');
   if (/[",\n]/.test(s)) return `"${s.replaceAll('"','""')}"`;
@@ -887,7 +1057,26 @@ function syncPropsUI(skipFocusPreserve=false){
   }
 
   propsEmpty.classList.add('hidden');
-  propsForm.classList.remove('hidden');
+
+  // Track target: move/rotate only (no properties) - but allow track direction toggle
+  if (el.type === 'trackTarget'){
+    propsEmpty.classList.add('hidden');
+    propsForm.classList.remove('hidden');
+    cameraFields.classList.add('hidden');
+
+    // Hide all rows by default, then show only track direction
+    const allRows = propsForm.querySelectorAll('.row, .grid2, #camera-fields');
+    allRows.forEach(r=>r.classList.add('hidden'));
+    if (rowTrackTo) rowTrackTo.classList.add('hidden');
+    if (rowTrackMode) rowTrackMode.classList.remove('hidden');
+
+    const parentCam = state.elements.find(e => e.type === 'camera' && e.trackToId === el.id);
+    if (pTrackMode) pTrackMode.value = (parentCam?.trackMode || 'to');
+
+    return;
+  }
+
+propsForm.classList.remove('hidden');
 
   const isCamera = el.type === 'camera';
   const isCharacter = el.type === 'character';
@@ -1046,7 +1235,7 @@ init();
 
 
 function exportToExcel(){
-  const cameras = state.elements.filter(el => el.type === 'camera');
+  const cameras = state.elements.filter(el => el.type === 'camera' && !el.isTrackTarget);
 
   const headers = [
     "SCENE #",

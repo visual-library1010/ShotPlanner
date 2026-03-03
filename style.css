@@ -232,3 +232,18 @@ body{
 #camera-fields .row {
   margin-bottom:4px;
 }
+
+
+/* Properties panel primary action button */
+.primarybtn{
+  width:100%;
+  padding:10px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background:#111111;
+  color:#ffffff;
+  font-weight: 650;
+  cursor:pointer;
+}
+.primarybtn:hover{ filter: brightness(1.05); }
+.primarybtn:active{ transform: translateY(1px); }
