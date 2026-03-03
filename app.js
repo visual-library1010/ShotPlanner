@@ -10,7 +10,6 @@ const btnUndo = document.getElementById('btn-undo');
 const btnRedo = document.getElementById('btn-redo');
 const btnSave = document.getElementById('btn-save');
 const btnExportCsv = document.getElementById('btn-export-csv');
-const btnClear = document.getElementById('btn-clear');
 const btnDelete = document.getElementById('btn-delete');
 const fileLoad = document.getElementById('file-load');
 
@@ -27,15 +26,11 @@ const P = {
   id: document.getElementById('p-id'),
   type: document.getElementById('p-type'),
   label: document.getElementById('p-label'),
+  characterName: document.getElementById('p-characterName'),
   x: document.getElementById('p-x'),
-  y: document.getElementById('p-y'),
-  rot: document.getElementById('p-rot'),
-  rotLabel: document.getElementById('p-rot-label'),
-  sx: document.getElementById('p-sx'),
+  y: document.getElementById('p-y'),  sx: document.getElementById('p-sx'),
   sy: document.getElementById('p-sy'),
-  color: document.getElementById('p-color'),
-  w: document.getElementById('p-w'),
-  h: document.getElementById('p-h'),  shotNumber: document.getElementById('p-shotNumber'),
+  color: document.getElementById('p-color'),  h: document.getElementById('p-h'),  shotNumber: document.getElementById('p-shotNumber'),
   shotType: document.getElementById('p-shotType'),
   lens: document.getElementById('p-lens'),
   nickname: document.getElementById('p-nickname'),
@@ -300,7 +295,7 @@ function drawGrid(){
   const oy = (view.offsetY * dpr) % spacing;
 
   ctx.save();
-  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+  ctx.strokeStyle = 'rgba(0,0,0,0.06)';
   ctx.lineWidth = 1 * dpr;
   for (let x = ox; x < w; x += spacing){
     ctx.beginPath();
@@ -325,7 +320,6 @@ function draw(){
   const h = rect.height * dpr;
 
   ctx.clearRect(0,0,w,h);
-  drawGrid();
 
   // world->screen handled manually per element for easier hit tests
   for (const el of state.elements){
@@ -333,7 +327,7 @@ function draw(){
   }
 
   const sel = getSelected();
-  if (sel) drawSelection(sel);
+  if (sel) drawRotationGizmo(sel);
 
   hudZoom.textContent = `${Math.round(view.scale*100)}%`;
 }
@@ -347,7 +341,26 @@ function drawElement(el){
   ctx.save();
   ctx.translate(p.x * dpr, p.y * dpr);
   ctx.rotate(rad(el.rotation));
-  ctx.fillStyle = el.color || '#999';
+  // Elegant selection indicator: soft drop shadow + subtle glow
+    if (el.id === state.selectedId){
+      // soft elevation shadow
+      ctx.shadowColor = 'rgba(0,0,0,0.30)';
+      ctx.shadowBlur = 28 * dpr;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 10 * dpr;
+
+      // subtle blue glow overlay
+      ctx.shadowColor = 'rgba(59,130,246,0.45)';
+      ctx.shadowBlur = 18 * dpr;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 0;
+    } else {
+      ctx.shadowColor = 'transparent';
+      ctx.shadowBlur = 0;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 0;
+    }
+ctx.fillStyle = el.color || '#999';
   ctx.strokeStyle = 'rgba(255,255,255,0.18)';
   ctx.lineWidth = 2 * dpr;
 
@@ -368,33 +381,50 @@ function drawElement(el){
   }
   else if (el.type === 'camera'){
     const size = (Math.max(el.width||52, el.height||52)) * el.scaleX * view.scale * dpr;
-    const r = size/2;
+    const s = size/2;
 
-    // circular background
+    // Rounded square body + equilateral triangle "hood" (matches requested shape)
+    ctx.fillStyle = el.color || '#22c55e';
+    ctx.strokeStyle = 'rgba(0,0,0,0.18)';
+    ctx.lineWidth = 2 * dpr;
+
+    const body = s * 1.05;          // square side length
+    const r = Math.max(4*dpr, body * 0.18); // corner radius
+    const x0 = -body/2;
+    const y0 = -body/2;
+
+    // Square
     ctx.beginPath();
-    ctx.arc(0,0,r,0,Math.PI*2);
+    ctx.roundRect(x0, y0, body, body, r);
     ctx.fill();
     ctx.stroke();
 
-    // camera body
-    const bodyW = r * 1.2;
-    const bodyH = r * 0.7;
-    ctx.fillStyle = 'rgba(255,255,255,0.9)';
-    ctx.beginPath();
-    ctx.roundRect(-bodyW/2, -bodyH/2, bodyW, bodyH, r*0.15);
-    ctx.fill();
+    // Equilateral triangle, one vertex touches midpoint of left edge of the square
+    // Vertex on square edge:
+    const vx = x0;          // left edge
+    const vy = 0;           // midpoint of left edge (square centered at 0,0)
 
-    // lens
-    ctx.fillStyle = 'rgba(0,0,0,0.7)';
-    ctx.beginPath();
-    ctx.arc(0, 0, r*0.22, 0, Math.PI*2);
-    ctx.fill();
+    // Choose triangle side length relative to body
+    const side = body * 0.75;
+    const height = side * Math.sqrt(3) / 2;
 
-    // top viewfinder block
-    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    // Orient triangle pointing left: tip at (vx,vy), base to the left
+    const bx = vx - height; // base center x
+    const by = vy;
+
+    // Base vertices (vertical)
+    const v2x = bx;
+    const v2y = by - side/2;
+    const v3x = bx;
+    const v3y = by + side/2;
+
     ctx.beginPath();
-    ctx.roundRect(-bodyW*0.35, -bodyH/2 - r*0.22, bodyW*0.4, r*0.25, r*0.08);
+    ctx.moveTo(vx, vy);
+    ctx.lineTo(v2x, v2y);
+    ctx.lineTo(v3x, v3y);
+    ctx.closePath();
     ctx.fill();
+    ctx.stroke();
   }
   else if (el.type === 'wall'){
     const ww = w * dpr;
@@ -417,13 +447,13 @@ function drawElement(el){
     // inner detail
     ctx.strokeStyle = 'rgba(255,255,255,0.20)';
     ctx.lineWidth = 2 * dpr;
-    ctx.strokeRect(-ww*0.35, -hh*0.25, ww*0.7, hh*0.5);
+    
   }
   else if (el.type === 'label'){
     // text label (draw rounded rect + text)
     const ww = w * dpr;
     const hh = h * dpr;
-    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.fillStyle = '#000000';
     ctx.strokeStyle = 'rgba(255,255,255,0.18)';
     ctx.lineWidth = 2 * dpr;
     ctx.beginPath();
@@ -438,23 +468,40 @@ function drawElement(el){
     ctx.fillText((el.label || 'Label').slice(0, 50), 0, 0, ww*0.95);
   }
 
-  // default label for others
+  // Text under icons
   if (el.type !== 'label'){
-    const label = (el.label || '').trim();
-    if (label){
-      ctx.save();
-      ctx.rotate(-rad(el.rotation));
-      ctx.fillStyle = 'rgba(255,255,255,0.85)';
-      ctx.font = `${Math.max(12, 12*view.scale*dpr)}px ui-sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'top';
-      ctx.fillText(label, 0, (h*0.55)*dpr, 220*dpr);
-      ctx.restore();
+    ctx.save();
+    ctx.rotate(-rad(el.rotation));
+    ctx.fillStyle = '#000000';
+    ctx.font = `${Math.max(12, 12*view.scale*dpr)}px ui-sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+
+    if (el.type === 'camera'){
+      const shotNum = (el.shotNumber || '').toString().trim();
+      const shotType = (el.shotType || '').toString().trim();
+
+      let text = '';
+      if (shotNum) text = 'Shot ' + shotNum;
+      if (shotNum && shotType) text += ' - ' + shotType;
+      else if (!shotNum && shotType) text = shotType;
+
+      if (text){
+        ctx.fillText(text, 0, (h*0.55)*dpr, 260*dpr);
+      }
+    } else {
+      const label = (el.label || '').trim();
+      if (label){
+        ctx.fillText(label, 0, (h*0.55)*dpr, 220*dpr);
+      }
     }
+
+    ctx.restore();
   }
 
   ctx.restore();
 }
+
 
 function drawSelection(el){
   const dpr = window.devicePixelRatio || 1;
@@ -467,19 +514,84 @@ function drawSelection(el){
   ctx.rotate(rad(el.rotation));
   ctx.strokeStyle = 'rgba(59,130,246,0.95)';
   ctx.lineWidth = 2 * dpr;
-  ctx.setLineDash([6*dpr, 6*dpr]);
+  
 
   // selection bounds (approx)
   const ww = w * dpr;
   const hh = h * dpr;
-  ctx.strokeRect(-ww/2, -hh/2, ww, hh);
+  
 
   // center dot
-  ctx.setLineDash([]);
-  ctx.fillStyle = 'rgba(59,130,246,0.95)';
+  
+  ctx.fillStyle = '#000000';
   ctx.beginPath();
   ctx.arc(0,0,3*dpr,0,Math.PI*2);
   ctx.fill();
+
+  ctx.restore();
+}
+
+
+function rotationHandleWorld(el){
+  // distance from center based on element size
+  const base = Math.max(el.width||60, el.height||60) * Math.max(el.scaleX||1, el.scaleY||1);
+  const dist = base * 0.75 + 24; // world units
+  const a = rad(el.rotation || 0);
+  return { x: el.x + Math.cos(a)*dist, y: el.y + Math.sin(a)*dist, dist };
+}
+
+function hitRotationHandle(wx, wy, el){
+  const h = rotationHandleWorld(el);
+  const dx = wx - h.x;
+  const dy = wy - h.y;
+  const r = 18 / view.scale; // keep consistent across zoom
+  return (dx*dx + dy*dy) <= r*r;
+}
+
+function drawRotationGizmo(el){
+  if (!el) return;
+  const dpr = window.devicePixelRatio || 1;
+
+  const c = worldToScreen(el.x, el.y);
+  const hW = rotationHandleWorld(el);
+  const h = worldToScreen(hW.x, hW.y);
+
+  ctx.save();
+
+  // draw in screen space, fixed sizes
+  ctx.setTransform(1,0,0,1,0,0);
+
+  const cx = c.x * dpr;
+  const cy = c.y * dpr;
+  const hx = h.x * dpr;
+  const hy = h.y * dpr;
+
+  // connector line
+  ctx.strokeStyle = 'rgba(59,130,246,0.55)';
+  ctx.lineWidth = 2 * dpr;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy);
+  ctx.lineTo(hx, hy);
+  ctx.stroke();
+
+  // outer glow ring
+  ctx.shadowColor = 'rgba(59,130,246,0.35)';
+  ctx.shadowBlur = 14 * dpr;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 0;
+
+  // handle dot
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.arc(hx, hy, 7 * dpr, 0, Math.PI*2);
+  ctx.fill();
+
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = 'rgba(59,130,246,0.95)';
+  ctx.lineWidth = 3 * dpr;
+  ctx.beginPath();
+  ctx.arc(hx, hy, 7 * dpr, 0, Math.PI*2);
+  ctx.stroke();
 
   ctx.restore();
 }
@@ -517,10 +629,11 @@ function pointInElement(px, py, el){
 // ---------- Interaction ----------
 let drag = {
   active: false,
-  mode: 'move', // move|pan
+  mode: 'move', // move|pan|rotate
   startWorld: {x:0,y:0},
   startEl: null,
   startOffset: {x:0,y:0},
+  startAngle: 0,
 };
 
 canvas.addEventListener('mousedown', (e)=>{
@@ -530,6 +643,19 @@ canvas.addEventListener('mousedown', (e)=>{
   const w = screenToWorld(sx, sy);
 
   if (e.button !== 0) return;
+// If clicking the rotation handle of the currently selected element, start rotating immediately.
+const currentSel = getSelected();
+if (currentSel && hitRotationHandle(w.x, w.y, currentSel)){
+  drag.active = true;
+  drag.mode = 'rotate';
+  drag.startEl = deepClone(currentSel);
+  drag.startWorld = w;
+  drag.startAngle = Math.atan2(w.y - currentSel.y, w.x - currentSel.x);
+  pushHistory();
+  canvas.style.cursor = 'grabbing';
+  return;
+}
+
 
   // space + drag => pan
   if (e.code === 'Space' || e.key === ' ' || e.buttons === 1 && keys.Space){
@@ -547,9 +673,23 @@ canvas.addEventListener('mousedown', (e)=>{
     return;
   }
 
-  setSelected(hit.id);
+setSelected(hit.id);
+
+// rotation gizmo: click/drag the handle to rotate
+if (state.selectedId && hitRotationHandle(w.x, w.y, hit)){
   drag.active = true;
-  drag.mode = 'move';
+  drag.mode = 'rotate';
+  drag.startEl = deepClone(hit);
+  drag.startWorld = w; // world point at mouse down
+  drag.startAngle = Math.atan2(w.y - hit.y, w.x - hit.x);
+  pushHistory();
+  canvas.style.cursor = 'grabbing';
+  return;
+}
+
+drag.active = true;
+drag.mode = 'move';
+
   drag.startWorld = w;
   drag.startEl = deepClone(hit);
   pushHistory();
@@ -557,6 +697,20 @@ canvas.addEventListener('mousedown', (e)=>{
 });
 
 canvas.addEventListener('mousemove', (e)=>{
+  if (!drag.active){
+    const rect = canvas.getBoundingClientRect();
+    const sx = e.clientX - rect.left;
+    const sy = e.clientY - rect.top;
+    const w = screenToWorld(sx, sy);
+    const sel = getSelected();
+    if (sel && hitRotationHandle(w.x, w.y, sel)){
+      canvas.style.cursor = 'grab';
+    } else {
+      canvas.style.cursor = 'default';
+    }
+    return;
+  }
+
   if (!drag.active) return;
 
   const rect = canvas.getBoundingClientRect();
@@ -569,10 +723,34 @@ canvas.addEventListener('mousemove', (e)=>{
     view.offsetX = drag.startOffset.x + dx;
     view.offsetY = drag.startOffset.y + dy;
     draw();
-    return;
-  }
+  return;
+}
+
+if (drag.mode === 'rotate'){
+  const sel = getSelected();
+  if (!sel || !drag.startEl) return;
 
   const w = screenToWorld(sx, sy);
+  const a0 = drag.startAngle;
+  const a1 = Math.atan2(w.y - drag.startEl.y, w.x - drag.startEl.x);
+  const delta = a1 - a0;
+  let next = (drag.startEl.rotation || 0) + deg(delta);
+
+  // normalize to [-180, 180]
+  next = ((next + 180) % 360) - 180;
+
+  sel.rotation = next;
+  const idx = state.elements.findIndex(x => x.id === sel.id);
+  if (idx >= 0) state.elements[idx] = sel;
+
+  saveToStorage();
+  syncPropsUI(true);
+  draw();
+  return;
+}
+
+const w = screenToWorld(sx, sy);
+
   const sel = getSelected();
   if (!sel || !drag.startEl) return;
 
@@ -629,7 +807,7 @@ window.addEventListener('keydown', (e)=>{
   } else if (mod && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))){
     e.preventDefault();
     redoDo();
-  } else if (e.key === 'Delete' || e.key === 'Backspace'){
+  } else if (e.key === 'Delete'){
     if (state.selectedId) deleteSelected();
   }
 });
@@ -648,16 +826,6 @@ btnDelete.addEventListener('click', deleteSelected);
 
 btnUndo.addEventListener('click', undo);
 btnRedo.addEventListener('click', redoDo);
-
-btnClear.addEventListener('click', ()=>{
-  pushHistory();
-  state.elements = [];
-  state.selectedId = null;
-  saveToStorage();
-  syncPropsUI();
-  syncButtons();
-  draw();
-});
 
 btnSave.addEventListener('click', ()=>{
   const blob = new Blob([JSON.stringify({ elements: state.elements }, null, 2)], {type:'application/json'});
@@ -685,20 +853,7 @@ fileLoad.addEventListener('change', async ()=>{
   }
 });
 
-btnExportCsv.addEventListener('click', ()=>{
-  const cams = state.elements.filter(e => e.type === 'camera');
-  const cols = [
-    'id','label','x','y','rotation','shotNumber','shotType','lens','nickname',
-    'sceneNumber','setupNumber','cameraSupport','techNotes','productionNotes'
-  ];
-  const rows = [cols.join(',')];
-  for (const c of cams){
-    rows.push(cols.map(k => csvEscape(c[k] ?? '')).join(','));
-  }
-  const blob = new Blob([rows.join('\n')], {type:'text/csv'});
-  downloadBlob(blob, `shot-designer-shots-${new Date().toISOString().slice(0,10)}.csv`);
-});
-
+btnExportCsv.addEventListener('click', ()=>{ exportToExcel(); });
 function csvEscape(v){
   const s = String(v ?? '');
   if (/[",\n]/.test(s)) return `"${s.replaceAll('"','""')}"`;
@@ -737,30 +892,16 @@ function syncPropsUI(skipFocusPreserve=false){
   const isCamera = el.type === 'camera';
   const isCharacter = el.type === 'character';
 
-  P.id.value = el.id;
-  P.type.value = el.type;
-  P.label.value = el.label ?? '';
-  P.x.value = Math.round(el.x);
-  P.y.value = Math.round(el.y);
-  P.rot.value = Math.round(el.rotation);
-  P.rotLabel.textContent = `${Math.round(el.rotation)}°`;
-  P.sx.value = Number(el.scaleX ?? 1).toFixed(2);
-  P.sy.value = Number(el.scaleY ?? 1).toFixed(2);
-  P.color.value = el.color ?? '#78716c';
+  // Visibility + labels
+  const rowCharName = document.getElementById('row-character-name');
+  const rowCamIdShot = document.getElementById('row-camera-id-shot');
+  const rowShotTypeLens = document.getElementById('row-shottype-lens');
+  const rowSceneSetup = document.getElementById('row-scene-setup');
+  // Default: show everything, then specialize
+  const allRows = propsForm.querySelectorAll('.row, .grid2, #camera-fields');
+  allRows.forEach(r=>r.classList.remove('hidden'));
 
-  if (cameraPalette){
-    const current = (el.color || '').toLowerCase();
-    cameraPalette.querySelectorAll('.swatch').forEach(btn=>{
-      const c = (btn.getAttribute('data-color') || '').toLowerCase();
-      if ((isCamera || isCharacter) && c === current) btn.classList.add('selected');
-      else btn.classList.remove('selected');
-    });
-  }
-  P.w.value = Math.round(el.width ?? 60);
-  P.h.value = Math.round(el.height ?? 60);
-
-
-
+  // Color: palette for camera/character, picker for others
   if (rowCameraColor && rowColorPicker){
     if (isCamera || isCharacter){
       rowCameraColor.classList.remove('hidden');
@@ -771,23 +912,60 @@ function syncPropsUI(skipFocusPreserve=false){
     }
   }
 
+  // Shot # shown only for camera
   const rowShot = document.getElementById('row-shotNumber');
   if (rowShot){
     if (isCamera) rowShot.classList.remove('hidden');
     else rowShot.classList.add('hidden');
   }
 
+  if (isCharacter){
+    // Character panel: only Character Name, Rotation, Primary Color, Size
+    if (rowCamIdShot) rowCamIdShot.classList.add('hidden');
+    if (rowShotTypeLens) rowShotTypeLens.classList.add('hidden');
+    if (rowSceneSetup) rowSceneSetup.classList.add('hidden');
+    cameraFields.classList.add('hidden');
+    if (rowCharName) rowCharName.classList.remove('hidden');
 
-  // Hide specific fields for camera
-  [P.id, P.type, P.x, P.y, P.sx, P.sy].forEach(input=>{
-    const row = input.closest('.row') || input.closest('.grid2');
-    if(row){
-      if(isCamera || isCharacter) row.classList.add('hidden');
-      else row.classList.remove('hidden');
-    }
-  });
+    // Hide rows we don't want
+    [P.id, P.type, P.x, P.y, P.sx, P.sy].forEach(input=>{
+      const row = input?.closest('.row') || input?.closest('.grid2');
+      if(row) row.classList.add('hidden');
+    });
+
+    // Hide the X/Y grid2 (it isn't referenced above once hidden inputs are hidden, but keep safe)
+    const xyGrid = P.x?.closest('.grid2');
+    if (xyGrid) xyGrid.classList.add('hidden');
+
+    // Ensure Size is visible
+    // Fill character name input from label
+    if (P.characterName) P.characterName.value = el.label ?? '';
+  }
 
   if (isCamera){
+    // Camera panel: match screenshot
+    if (rowCharName) rowCharName.classList.add('hidden');
+    if (rowCamIdShot) rowCamIdShot.classList.remove('hidden');
+    if (rowShotTypeLens) rowShotTypeLens.classList.remove('hidden');
+    if (rowSceneSetup) rowSceneSetup.classList.remove('hidden');
+    cameraFields.classList.remove('hidden');
+
+    // Hide technical fields and Size
+    [P.id, P.type, P.x, P.y, P.sx, P.sy].forEach(input=>{
+      const row = input?.closest('.row') || input?.closest('.grid2');
+      if(row) row.classList.add('hidden');
+    });
+    const xyGrid = P.x?.closest('.grid2');
+    if (xyGrid) xyGrid.classList.add('hidden');
+    // Ensure camera label says Camera ID
+    const camIdLabel = document.querySelector('#row-camera-id-shot .row label');
+    if (camIdLabel) camIdLabel.textContent = 'Camera ID';
+  }
+
+  if (isCamera){
+
+    // Populate Camera ID input from saved element label
+    if (P.label) P.label.value = el.label ?? '';
 
     cameraFields.classList.remove('hidden');
         P.shotNumber.value = el.shotNumber ?? '';
@@ -805,6 +983,7 @@ function syncPropsUI(skipFocusPreserve=false){
 }
 
 function bindPropInput(elm, getter){
+  if (!elm) return;
   elm.addEventListener('input', ()=>{
     const sel = getSelected();
     if (!sel) return;
@@ -814,15 +993,12 @@ function bindPropInput(elm, getter){
 }
 
 bindPropInput(P.label, ()=>({label: P.label.value}));
+bindPropInput(P.characterName, ()=>({label: P.characterName.value}));
 bindPropInput(P.x, ()=>({x: Number(P.x.value)}));
 bindPropInput(P.y, ()=>({y: Number(P.y.value)}));
-bindPropInput(P.rot, ()=>({rotation: Number(P.rot.value), }));
-P.rot.addEventListener('input', ()=>{ P.rotLabel.textContent = `${Math.round(Number(P.rot.value))}°`; });
 bindPropInput(P.sx, ()=>({scaleX: clamp(Number(P.sx.value), 0.1, 10)}));
 bindPropInput(P.sy, ()=>({scaleY: clamp(Number(P.sy.value), 0.1, 10)}));
 bindPropInput(P.color, ()=>({color: P.color.value}));
-bindPropInput(P.w, ()=>({width: clamp(Number(P.w.value), 1, 2000)}));
-bindPropInput(P.h, ()=>({height: clamp(Number(P.h.value), 1, 2000)}));
 
 bindPropInput(P.shotNumber, ()=>({shotNumber: P.shotNumber.value}));
 bindPropInput(P.shotType, ()=>({shotType: P.shotType.value}));
@@ -867,3 +1043,42 @@ function init(){
 
 window.addEventListener('resize', draw);
 init();
+
+
+function exportToExcel(){
+  const cameras = state.elements.filter(el => el.type === 'camera');
+
+  const headers = [
+    "SCENE #",
+    "SETUP #",
+    "CAM ID",
+    "SHOT #",
+    "FRAME",
+    "NICKNAME",
+    "CAMERA SUPPORT",
+    "LENS",
+    "TECH NOTES",
+    "PRODUCTION NOTES"
+  ];
+
+  const rows = [headers.map(csvEscape).join(",")];
+
+  cameras.forEach(cam => {
+    const row = [
+      cam.sceneNumber || "",
+      cam.setupNumber || "",
+      cam.label || "",
+      cam.shotNumber || "",
+      cam.shotType || "", // FRAME = Shot Type
+      cam.nickname || "",
+      cam.cameraSupport || "",
+      cam.lens || "",
+      cam.techNotes || "",
+      cam.productionNotes || ""
+    ];
+    rows.push(row.map(csvEscape).join(","));
+  });
+
+  const blob = new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8;" });
+  downloadBlob(blob, `shot-designer-shots-${new Date().toISOString().slice(0,10)}.csv`);
+}

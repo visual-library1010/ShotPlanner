@@ -9,52 +9,47 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="brand">
-      <div class="dot"></div>
-      <div>
-        <div class="title">Shot Designer</div>
-        <div class="subtitle">Vanilla JS • GitHub Pages ready</div>
-      </div>
-    </div>
+  <div class="brand-pill">
+    <div class="brand-badge">SD</div>
+    <div class="brand-text">Shot Designer</div>
+  </div>
 
-    <div class="top-actions">
-      <button id="btn-undo" class="btn" title="Undo (Ctrl+Z)">Undo</button>
-      <button id="btn-redo" class="btn" title="Redo (Ctrl+Y / Ctrl+Shift+Z)">Redo</button>
-      <div class="sep"></div>
-      <button id="btn-save" class="btn">Save JSON</button>
-      <label class="btn file">
-        Load JSON
-        <input id="file-load" type="file" accept="application/json" />
-      </label>
-      <div class="sep"></div>
-      <button id="btn-export-csv" class="btn">Export Shots CSV</button>
-      <button id="btn-clear" class="btn danger">Clear</button>
-    </div>
-  </header>
+  <div class="action-pill">
+    <button id="btn-undo" class="iconbtn" title="Undo (Ctrl+Z)"><span class="material-symbols-outlined">undo</span></button>
+    <button id="btn-redo" class="iconbtn" title="Redo (Ctrl+Y / Ctrl+Shift+Z)"><span class="material-symbols-outlined">redo</span></button>
+    <div class="pill-sep"></div>
+    <button id="btn-save" class="iconbtn" title="Save JSON"><span class="material-symbols-outlined">download</span></button>
+    <label class="iconbtn file" title="Load JSON">
+      <span class="material-symbols-outlined">upload</span>
+      <input id="file-load" type="file" accept="application/json" />
+    </label>
+    <button id="btn-export-csv" class="iconbtn" title="Export Shots CSV"><span class="material-symbols-outlined">table_view</span></button>
+  </div>
+</header>
+
 
   <main class="layout">
     <aside class="toolbar">
-      <div class="toolgroup">
-        <button class="tool" data-add="character">+ Character</button>
-        <button class="tool" data-add="camera">+ Camera</button>
-        <button class="tool" data-add="wall">+ Wall</button>
-        <button class="tool" data-add="furniture">+ Furniture</button>
-        <button class="tool" data-add="label">+ Label</button>
-      </div>
-      <div class="toolgroup">
-        <button id="btn-delete" class="tool danger" disabled>Delete</button>
-      </div>
+  <div class="toolstack">
+    <button class="toolicon" data-add="character" title="Add Character">
+      <span class="material-symbols-outlined">person</span>
+    </button>
+    <button class="toolicon" data-add="camera" title="Add Camera">
+      <span class="material-symbols-outlined">videocam</span>
+    </button>
+    <button class="toolicon" data-add="wall" title="Add Wall">
+      <span class="material-symbols-outlined">remove</span>
+    </button>
+    <button class="toolicon" data-add="furniture" title="Add Furniture">
+      <span class="material-symbols-outlined">crop_square</span>
+    </button>
+    <div class="toolsep"></div>
+    <button id="btn-delete" class="toolicon danger" title="Delete (Del)" disabled>
+      <span class="material-symbols-outlined">delete</span>
+    </button>
+  </div>
+</aside>
 
-      <div class="hint">
-        <div class="hint-title">Controls</div>
-        <ul>
-          <li>Click to select</li>
-          <li>Drag to move</li>
-          <li>Mouse wheel to zoom</li>
-          <li>Space + drag to pan</li>
-        </ul>
-      </div>
-    </aside>
 
     <section class="canvas-wrap">
       <canvas id="scene" width="1200" height="800"></canvas>
@@ -81,9 +76,15 @@
           </div>
 
           
-    <div class="grid2">
+    
+<div class="row hidden" id="row-character-name">
+  <label>Character Name</label>
+  <input id="p-characterName" type="text" />
+</div>
+
+<div class="grid2" id="row-camera-id-shot">
       <div class="row">
-        <label>Label</label>
+        <label>Camera ID</label>
         <input id="p-label" type="text" />
       </div>
       <div class="row" id="row-shotNumber">
@@ -93,7 +94,33 @@
     </div>
     
 
-          <div class="grid2">
+          
+<div class="grid2" id="row-shottype-lens">
+  <div class="row">
+    <label>Shot Type</label>
+    <select id="p-shotType">
+      <option value="">(none)</option>
+      <option>EWS</option><option>WS</option><option>MWS</option><option>FS</option>
+      <option>MS</option><option>MCU</option><option>CU</option><option>ECU</option>
+    </select>
+  </div>
+  <div class="row">
+    <label>Lens</label>
+    <input id="p-lens" type="text" />
+  </div>
+</div>
+
+<div class="grid2" id="row-scene-setup">
+  <div class="row">
+    <label>Scene #</label>
+    <input id="p-sceneNumber" type="text" />
+  </div>
+  <div class="row">
+    <label>Setup #</label>
+    <input id="p-setupNumber" type="text" />
+  </div>
+</div>
+<div class="grid2">
             <div class="row">
               <label>X</label>
               <input id="p-x" type="number" step="1" />
@@ -102,12 +129,6 @@
               <label>Y</label>
               <input id="p-y" type="number" step="1" />
             </div>
-          </div>
-
-          <div class="row">
-            <label>Rotation</label>
-            <input id="p-rot" type="range" min="-180" max="180" step="1" />
-            <div id="p-rot-label" class="mini">0°</div>
           </div>
 
           <div class="grid2">
@@ -123,18 +144,6 @@
 
           <div id="camera-fields" class="hidden">
             <div class="row">
-              <label>Shot Type</label>
-              <select id="p-shotType">
-                <option value="">(none)</option>
-                <option>EWS</option><option>WS</option><option>MWS</option><option>FS</option>
-                <option>MS</option><option>MCU</option><option>CU</option><option>ECU</option>
-              </select>
-            </div>
-            <div class="row">
-              <label>Lens</label>
-              <input id="p-lens" type="text" />
-            </div>
-            <div class="row">
               <label>Nickname</label>
               <input id="p-nickname" type="text" />
             </div>
@@ -145,14 +154,6 @@
             <div class="row">
               <label>Production Notes</label>
               <textarea id="p-productionNotes" rows="3"></textarea>
-            </div>
-            <div class="row">
-              <label>Scene #</label>
-              <input id="p-sceneNumber" type="text" />
-            </div>
-            <div class="row">
-              <label>Setup #</label>
-              <input id="p-setupNumber" type="text" />
             </div>
             <div class="row">
               <label>Camera Support</label>
@@ -184,15 +185,7 @@
     </div>
     
 
-          <div class="row">
-            <label>Size</label>
-            <div class="grid2">
-              <input id="p-w" type="number" step="1" min="1" />
-              <input id="p-h" type="number" step="1" min="1" />
-            </div>
-            <div class="mini muted">For characters/cameras, Width controls icon size.</div>
-          </div>
-        </form>
+          </form>
       </div>
     </aside>
   </main>
