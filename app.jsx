@@ -1,5 +1,14 @@
 import React, { StrictMode, useState, useEffect, useCallback, useRef } from "https://esm.sh/react@18.2.0";
 import { createRoot } from "https://esm.sh/react-dom@18.2.0/client";
+import Konva from "https://esm.sh/konva@9.3.6";
+import "https://esm.sh/konva@9.3.6/lib/shapes/Circle";
+import "https://esm.sh/konva@9.3.6/lib/shapes/Rect";
+import "https://esm.sh/konva@9.3.6/lib/shapes/Line";
+import "https://esm.sh/konva@9.3.6/lib/shapes/Text";
+import "https://esm.sh/konva@9.3.6/lib/shapes/Arrow";
+import "https://esm.sh/konva@9.3.6/lib/shapes/Path";
+import "https://esm.sh/konva@9.3.6/lib/shapes/Transformer";
+// (Konva import above ensures shape modules register themselves for react-konva minimal builds.)
 import {
   Stage, Layer, Transformer,
   Circle, Rect, Group, Text, Line, Path, Arrow
