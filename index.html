@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Shot Designer</title>
+
+    <!-- Tailwind (no build step) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <link rel="stylesheet" href="./style.css" />
+
+    <!-- Babel (runtime JSX transform, no build step) -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+
+    <!-- App (ESM + JSX via Babel; imports use esm.sh) -->
+    <script type="text/babel" data-type="module" data-presets="react" src="./app.jsx"></script>
+  </body>
+</html>
