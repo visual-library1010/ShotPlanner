@@ -22,12 +22,12 @@ function createTrackTargetFor(sourceEl){
       isTrackTarget: true,
       parentId: sourceEl.id,
       noExport: true,
+      color: sourceEl.color || '#999',
       x: sourceEl.x + 120,
       y: sourceEl.y,
       rotation: sourceEl.rotation || 0,
       scaleX: sourceEl.scaleX ?? 1,
       scaleY: sourceEl.scaleY ?? 1,
-      color: sourceEl.color || '#3b82f6',
       label: '',         // no label on targets
       width: sourceEl.width ?? 40,
       height: sourceEl.height ?? 40,
@@ -39,10 +39,11 @@ function createTrackTargetFor(sourceEl){
       type: 'trackTarget',
       trackFor: sourceEl.type, // camera
       parentId: sourceEl.id,
+      parentId: sourceEl.id,
+      color: sourceEl.color || '#111',
       x: sourceEl.x + 80,
       y: sourceEl.y,
       rotation: sourceEl.rotation || 0,
-      color: sourceEl.color || '#1c1917',
       scaleX: sourceEl.scaleX ?? 1,
       scaleY: sourceEl.scaleY ?? 1,
       width: sourceEl.width,
@@ -107,6 +108,8 @@ const P = {
   setupNumber: document.getElementById('p-setupNumber'),
   cameraSupport: document.getElementById('p-cameraSupport'),
 };
+const pColor = P.color;
+
 
 const STORAGE_KEY = 'shot-designer-vanilla-scene-v1';
 
@@ -238,6 +241,87 @@ function loadFromStorage(){
   return null;
 }
 
+
+// ---------- Color + Track Linking Normalization ----------
+function resolveTrackParent(targetEl, elements){
+  if (!targetEl) return null;
+
+  // 1) direct pointer
+  if (targetEl.parentId){
+    const p = elements.find(e => e.id === targetEl.parentId);
+    if (p) return p;
+  }
+
+  // 2) reverse lookup from parents
+  const p2 = elements.find(e => (e.type === 'camera' || e.type === 'character') && (e.trackToId === targetEl.id || e.trackTo === targetEl.id));
+  if (p2){
+    targetEl.parentId = p2.id;
+    return p2;
+  }
+
+  return null;
+}
+
+function isTrackTargetEl(el){
+  return el && (el.type === 'trackTarget' || el.isTrackTarget === true);
+}
+
+function getColorOwner(el){
+  if (!el) return null;
+  if (isTrackTargetEl(el)){
+    const parent = resolveTrackParent(el, state.elements);
+    return parent || el;
+  }
+  return el;
+}
+
+function normalizeElements(elements){
+  if (!Array.isArray(elements)) return elements;
+
+  // migrate old field names + ensure linkage pointers exist
+  for (const el of elements){
+    if (!el || typeof el !== 'object') continue;
+
+    // migrate trackTo -> trackToId (older saves)
+    if (el.trackTo && !el.trackToId) el.trackToId = el.trackTo;
+
+    // some historical saves used parent instead of parentId
+    if (el.parent && !el.parentId) el.parentId = el.parent;
+
+    // normalize booleans
+    if (el.isTrackTarget === 'true') el.isTrackTarget = true;
+    if (el.isTrackTarget === 'false') el.isTrackTarget = false;
+  }
+
+  // ensure targets have parentId and color follows parent
+  for (const parent of elements){
+    if (!parent || typeof parent !== 'object') continue;
+    if ((parent.type === 'camera' || parent.type === 'character') && (parent.trackToId || parent.trackTo)){
+      const targetId = parent.trackToId || parent.trackTo;
+      const tgt = elements.find(e => e.id === targetId);
+      if (tgt){
+        if (!tgt.parentId) tgt.parentId = parent.id;
+        // mark character targets (if applicable)
+        if (parent.type === 'character') tgt.isTrackTarget = true;
+
+        // keep target color matched to parent (source of truth is parent)
+        if (parent.color) tgt.color = parent.color;
+      }
+    }
+  }
+
+  // ensure any target without parentId tries to resolve parent
+  for (const el of elements){
+    if (isTrackTargetEl(el) && !el.parentId){
+      const p = resolveTrackParent(el, elements);
+      if (p && p.color) el.color = p.color;
+    }
+  }
+
+  return elements;
+}
+
+
 function getSelected(){
   return state.elements.find(e => e.id === state.selectedId) || null;
 }
@@ -252,10 +336,43 @@ function setSelected(id){
 function updateElement(id, patch){
   const idx = state.elements.findIndex(e => e.id === id);
   if (idx < 0) return;
+
   pushHistory();
   state.elements[idx] = { ...state.elements[idx], ...patch };
+
+  // Centralized color sync:
+  // - Parent (camera/character) owns color
+  // - Track targets inherit; editing a target edits the parent
+  if (patch && Object.prototype.hasOwnProperty.call(patch, 'color')){
+    const el = state.elements[idx];
+
+    // If a target was edited, forward color to its parent
+    if (isTrackTargetEl(el)){
+      const parent = resolveTrackParent(el, state.elements);
+      if (parent && (parent.type === 'camera' || parent.type === 'character')){
+        parent.color = el.color;
+        // keep the linked target color matched too
+        if (parent.trackToId){
+          const tgt = state.elements.find(e => e.id === parent.trackToId);
+          if (tgt) tgt.color = parent.color;
+        }
+      }
+    }
+
+    // If a parent was edited, push color to its linked target
+    if (el.type === 'camera' || el.type === 'character'){
+      if (el.trackToId){
+        const tgt = state.elements.find(e => e.id === el.trackToId);
+        if (tgt){
+          tgt.color = el.color;
+          if (!tgt.parentId) tgt.parentId = el.id;
+        }
+      }
+    }
+  }
+
   saveToStorage();
-  syncPropsUI();
+  syncPropsUI(true);
   draw();
 }
 
@@ -483,6 +600,8 @@ function drawTrackArrows(){
     }
 }
 
+
+
   ctx.restore();
 }
 
@@ -510,6 +629,14 @@ function draw(){
 }
 
 function drawElement(el){
+  // Track targets (camera trackTarget or camera element with isTrackTarget) inherit color from their parent camera (live)
+  let inheritedColor = null;
+  if (el.type === 'trackTarget' || el.isTrackTarget){
+    const parent = state.elements.find(e => e.id === (el.parentId || '')) ||
+                   state.elements.find(e => (e.type === 'camera') && e.trackToId === el.id);
+    if (parent && (parent.type === 'camera' || parent.type === 'character')) inheritedColor = parent.color || null;
+  }
+
   const dpr = window.devicePixelRatio || 1;
   const p = worldToScreen(el.x, el.y);
   const w = (el.width || 60) * el.scaleX * view.scale;
@@ -537,7 +664,7 @@ function drawElement(el){
       ctx.shadowOffsetX = 0;
       ctx.shadowOffsetY = 0;
     }
-ctx.fillStyle = el.color || '#999';
+ctx.fillStyle = (inheritedColor || el.color) || '#999';
   ctx.strokeStyle = 'rgba(255,255,255,0.18)';
   ctx.lineWidth = 2 * dpr;
 
@@ -563,7 +690,7 @@ ctx.fillStyle = el.color || '#999';
     const s = size/2;
 
     // Rounded square body + equilateral triangle "hood" (matches requested shape)
-    ctx.fillStyle = el.color || '#22c55e';
+    ctx.fillStyle = (inheritedColor || el.color) || '#22c55e';
     ctx.strokeStyle = 'rgba(0,0,0,0.18)';
     ctx.lineWidth = 2 * dpr;
 
@@ -608,7 +735,7 @@ ctx.fillStyle = el.color || '#999';
   else if (el.type === 'wall'){
     const ww = w * dpr;
     const hh = h * dpr;
-    ctx.fillStyle = el.color || '#f59e0b';
+    ctx.fillStyle = (inheritedColor || el.color) || '#f59e0b';
     ctx.beginPath();
     ctx.roundRect(-ww/2, -hh/2, ww, hh, 8*dpr);
     ctx.fill();
@@ -617,7 +744,7 @@ ctx.fillStyle = el.color || '#999';
   else if (el.type === 'furniture'){
     const ww = w * dpr;
     const hh = h * dpr;
-    ctx.fillStyle = el.color || '#10b981';
+    ctx.fillStyle = (inheritedColor || el.color) || '#10b981';
     ctx.beginPath();
     ctx.roundRect(-ww/2, -hh/2, ww, hh, 12*dpr);
     ctx.fill();
@@ -640,7 +767,7 @@ ctx.fillStyle = el.color || '#999';
     ctx.fill();
     ctx.stroke();
 
-    ctx.fillStyle = el.color || '#e5e7eb';
+    ctx.fillStyle = (inheritedColor || el.color) || '#e5e7eb';
     ctx.font = `${Math.max(12, hh*0.45)}px ui-sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -1035,7 +1162,40 @@ fileLoad.addEventListener('change', async ()=>{
 btnExportCsv.addEventListener('click', ()=>{ exportToExcel(); });
 
 // Track direction (to / from / between)
-if (pTrackMode){
+
+// Color picker: single source of truth.
+// - Parent cameras/characters own the color.
+// - Track targets always inherit parent color (and editing a target edits the parent).
+if (pColor){
+  pColor.addEventListener('input', ()=>{
+    const el = getSelected();
+    if (!el) return;
+
+    const owner = getColorOwner(el);
+    if (!owner) return;
+
+    // only these types support color
+    if (!(owner.type === 'camera' || owner.type === 'character')) return;
+
+    pushHistory();
+    owner.color = pColor.value;
+
+    // keep linked target in sync immediately (for saved JSON + any code paths that read tgt.color)
+    if (owner.trackToId){
+      const tgt = state.elements.find(e => e.id === owner.trackToId);
+      if (tgt){
+        tgt.color = owner.color;
+        if (!tgt.parentId) tgt.parentId = owner.id;
+      }
+    }
+
+    saveToStorage();
+    syncPropsUI(true);
+    draw();
+  });
+}
+
+if (pTrackMode)if (pTrackMode){
   pTrackMode.addEventListener('change', () => {
   const el = getSelected();
   if (!el) return;
@@ -1055,10 +1215,10 @@ if (pTrackMode){
   el.trackMode = pTrackMode.value;
   saveToStorage();
   draw();
-});
+  });
 }
 
-// Track To... (camera movement target)
+// Track To...  (camera movement target)
 if (btnTrackTo){
   btnTrackTo.addEventListener('click', () => {
   const el = getSelected();
@@ -1106,13 +1266,25 @@ function syncPropsUI(skipFocusPreserve=false){
   if (el.type === 'trackTarget'){
     propsEmpty.classList.add('hidden');
     propsForm.classList.remove('hidden');
-    cameraFields.classList.add('hidden');
+    cameraFields.classList.remove('hidden');
 
     // Hide all rows by default, then show only track direction
     const allRows = propsForm.querySelectorAll('.row, .grid2, #camera-fields');
     allRows.forEach(r=>r.classList.add('hidden'));
+
+    // Hide everything in cameraFields, then enable just the camera color row
+    const camFieldChildren = cameraFields.querySelectorAll('.row, .grid2');
+    camFieldChildren.forEach(r=>r.classList.add('hidden'));
+    if (rowCameraColor) rowCameraColor.classList.remove('hidden');
+
     if (rowTrackTo) rowTrackTo.classList.add('hidden');
     if (rowTrackMode) rowTrackMode.classList.remove('hidden');
+    // Allow recoloring the track-to camera icon
+    if (rowCameraColor) rowCameraColor.classList.remove('hidden');
+    if (rowColorPicker) rowColorPicker.classList.remove('hidden');
+    const owner = getColorOwner(el);
+    if (pColor) pColor.value = ((owner?.color) || '#111111');
+    syncPaletteSelection(owner?.color);
 
     const parent = state.elements.find(e => (e.type === 'camera' || e.type === 'character') && e.trackToId === el.id);
     if (pTrackMode) pTrackMode.value = (parent?.trackMode || 'to');
@@ -1134,14 +1306,24 @@ propsForm.classList.remove('hidden');
   const allRows = propsForm.querySelectorAll('.row, .grid2, #camera-fields');
   allRows.forEach(r=>r.classList.remove('hidden'));
 
-  // Color: palette for camera/character, picker for others
+  // Color: unified control.
+// - Cameras/characters (and their track targets) use palette + picker, editing the parent.
+// - Other items use the picker on the selected element.
+  const owner = getColorOwner(el);
+
   if (rowCameraColor && rowColorPicker){
-    if (isCamera || isCharacter){
+    const ownerIsColorable = owner && (owner.type === 'camera' || owner.type === 'character');
+
+    if (ownerIsColorable){
       rowCameraColor.classList.remove('hidden');
-      rowColorPicker.classList.add('hidden');
+      rowColorPicker.classList.remove('hidden');
+      if (pColor) pColor.value = (owner.color || '#111111');
+      syncPaletteSelection(owner.color);
     } else {
       rowCameraColor.classList.add('hidden');
       rowColorPicker.classList.remove('hidden');
+      if (pColor) pColor.value = (el.color || '#111111');
+      syncPaletteSelection(null);
     }
   }
 
@@ -1244,14 +1426,25 @@ bindPropInput(P.setupNumber, ()=>({setupNumber: P.setupNumber.value}));
 bindPropInput(P.cameraSupport, ()=>({cameraSupport: P.cameraSupport.value}));
 
 
+function syncPaletteSelection(color){
+  if (!cameraPalette) return;
+  cameraPalette.querySelectorAll('.swatch').forEach(s=>s.classList.remove('selected'));
+  if (!color) return;
+  const btn = cameraPalette.querySelector(`.swatch[data-color="${color.toLowerCase()}"], .swatch[data-color="${color}"]`);
+  if (btn) btn.classList.add('selected');
+}
+
 if (cameraPalette){
   cameraPalette.querySelectorAll('.swatch').forEach(btn=>{
     const color = btn.getAttribute('data-color');
     btn.style.background = color;
     btn.addEventListener('click', ()=>{
       const sel = getSelected();
-      if (!sel || (sel.type !== 'camera' && sel.type !== 'character')) return;
-      updateElement(sel.id, {color});
+      if (!sel) return;
+      const owner = getColorOwner(sel);
+      if (!owner || (owner.type !== 'camera' && owner.type !== 'character')) return;
+      updateElement(owner.id, {color});
+
       cameraPalette.querySelectorAll('.swatch').forEach(s=>s.classList.remove('selected'));
       btn.classList.add('selected');
     });
@@ -1261,7 +1454,7 @@ if (cameraPalette){
 // ---------- Init ----------
 function init(){
   const saved = loadFromStorage();
-  state.elements = saved ?? deepClone(INITIAL_ELEMENTS);
+  state.elements = normalizeElements(saved ?? deepClone(INITIAL_ELEMENTS));
   state.selectedId = null;
   history = [];
   redo = [];
