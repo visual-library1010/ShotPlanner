@@ -1414,12 +1414,17 @@ propsForm.classList.remove('hidden');
 
 function bindPropInput(elm, getter){
   if (!elm) return;
-  elm.addEventListener('input', ()=>{
+
+  const handler = ()=>{
     const sel = getSelected();
     if (!sel) return;
     const patch = getter(sel);
     updateElement(sel.id, patch);
-  });
+  };
+
+  // 'input' for text fields, 'change' for selects; attach both for robustness.
+  elm.addEventListener('input', handler);
+  elm.addEventListener('change', handler);
 }
 
 bindPropInput(P.label, ()=>({label: P.label.value}));
