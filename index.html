@@ -1,22 +1,202 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Shot Designer</title>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Shot Designer (Vanilla)</title>
+  <link rel="stylesheet" href="./style.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="dot"></div>
+      <div>
+        <div class="title">Shot Designer</div>
+        <div class="subtitle">Vanilla JS • GitHub Pages ready</div>
+      </div>
+    </div>
 
-    <!-- Tailwind (no build step) -->
-    <script src="https://cdn.tailwindcss.com"></script>
+    <div class="top-actions">
+      <button id="btn-undo" class="btn" title="Undo (Ctrl+Z)">Undo</button>
+      <button id="btn-redo" class="btn" title="Redo (Ctrl+Y / Ctrl+Shift+Z)">Redo</button>
+      <div class="sep"></div>
+      <button id="btn-save" class="btn">Save JSON</button>
+      <label class="btn file">
+        Load JSON
+        <input id="file-load" type="file" accept="application/json" />
+      </label>
+      <div class="sep"></div>
+      <button id="btn-export-csv" class="btn">Export Shots CSV</button>
+      <button id="btn-clear" class="btn danger">Clear</button>
+    </div>
+  </header>
 
-    <link rel="stylesheet" href="./style.css" />
+  <main class="layout">
+    <aside class="toolbar">
+      <div class="toolgroup">
+        <button class="tool" data-add="character">+ Character</button>
+        <button class="tool" data-add="camera">+ Camera</button>
+        <button class="tool" data-add="wall">+ Wall</button>
+        <button class="tool" data-add="furniture">+ Furniture</button>
+        <button class="tool" data-add="label">+ Label</button>
+      </div>
+      <div class="toolgroup">
+        <button id="btn-delete" class="tool danger" disabled>Delete</button>
+      </div>
 
-    <!-- Babel (runtime JSX transform, no build step) -->
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  </head>
-  <body>
-    <div id="root"></div>
+      <div class="hint">
+        <div class="hint-title">Controls</div>
+        <ul>
+          <li>Click to select</li>
+          <li>Drag to move</li>
+          <li>Mouse wheel to zoom</li>
+          <li>Space + drag to pan</li>
+        </ul>
+      </div>
+    </aside>
 
-    <!-- App (ESM + JSX via Babel; imports use esm.sh) -->
-    <script type="text/babel" data-type="module" data-presets="react" src="./app.jsx"></script>
-  </body>
+    <section class="canvas-wrap">
+      <canvas id="scene" width="1200" height="800"></canvas>
+      <div class="hud">
+        <div id="hud-zoom" class="pill">100%</div>
+        <div class="pill">Tip: use the Properties panel to rotate/resize</div>
+      </div>
+    </section>
+
+    <aside class="props">
+      <div class="panel">
+        <div class="panel-title">Properties</div>
+        <div id="props-empty" class="muted">Select an element to edit.</div>
+
+        <form id="props-form" class="form hidden">
+          <div class="row">
+            <label>ID</label>
+            <input id="p-id" type="text" disabled />
+          </div>
+
+          <div class="row">
+            <label>Type</label>
+            <input id="p-type" type="text" disabled />
+          </div>
+
+          
+    <div class="grid2">
+      <div class="row">
+        <label>Label</label>
+        <input id="p-label" type="text" />
+      </div>
+      <div class="row" id="row-shotNumber">
+        <label>Shot #</label>
+        <input id="p-shotNumber" type="text" />
+      </div>
+    </div>
+    
+
+          <div class="grid2">
+            <div class="row">
+              <label>X</label>
+              <input id="p-x" type="number" step="1" />
+            </div>
+            <div class="row">
+              <label>Y</label>
+              <input id="p-y" type="number" step="1" />
+            </div>
+          </div>
+
+          <div class="row">
+            <label>Rotation</label>
+            <input id="p-rot" type="range" min="-180" max="180" step="1" />
+            <div id="p-rot-label" class="mini">0°</div>
+          </div>
+
+          <div class="grid2">
+            <div class="row">
+              <label>Scale X</label>
+              <input id="p-sx" type="number" step="0.05" min="0.1" max="10" />
+            </div>
+            <div class="row">
+              <label>Scale Y</label>
+              <input id="p-sy" type="number" step="0.05" min="0.1" max="10" />
+            </div>
+          </div>
+
+          <div id="camera-fields" class="hidden">
+            <div class="row">
+              <label>Shot Type</label>
+              <select id="p-shotType">
+                <option value="">(none)</option>
+                <option>EWS</option><option>WS</option><option>MWS</option><option>FS</option>
+                <option>MS</option><option>MCU</option><option>CU</option><option>ECU</option>
+              </select>
+            </div>
+            <div class="row">
+              <label>Lens</label>
+              <input id="p-lens" type="text" />
+            </div>
+            <div class="row">
+              <label>Nickname</label>
+              <input id="p-nickname" type="text" />
+            </div>
+            <div class="row">
+              <label>Tech Notes</label>
+              <textarea id="p-techNotes" rows="3"></textarea>
+            </div>
+            <div class="row">
+              <label>Production Notes</label>
+              <textarea id="p-productionNotes" rows="3"></textarea>
+            </div>
+            <div class="row">
+              <label>Scene #</label>
+              <input id="p-sceneNumber" type="text" />
+            </div>
+            <div class="row">
+              <label>Setup #</label>
+              <input id="p-setupNumber" type="text" />
+            </div>
+            <div class="row">
+              <label>Camera Support</label>
+              <input id="p-cameraSupport" type="text" />
+            </div>
+          </div>
+
+          
+    <div class="row hidden" id="row-camera-color">
+      <label>Primary Color</label>
+      <div class="palette" id="camera-palette">
+        <button type="button" class="swatch" data-color="#ef4444"></button>
+        <button type="button" class="swatch" data-color="#f97316"></button>
+        <button type="button" class="swatch" data-color="#f59e0b"></button>
+        <button type="button" class="swatch" data-color="#22c55e"></button>
+        <button type="button" class="swatch" data-color="#14b8a6"></button>
+        <button type="button" class="swatch" data-color="#3b82f6"></button>
+        <button type="button" class="swatch" data-color="#6366f1"></button>
+        <button type="button" class="swatch" data-color="#a855f7"></button>
+        <button type="button" class="swatch" data-color="#ec4899"></button>
+        <button type="button" class="swatch" data-color="#9ca3af"></button>
+        <button type="button" class="swatch" data-color="#ffffff"></button>
+      </div>
+    </div>
+
+    <div class="row" id="row-color-picker">
+      <label>Color</label>
+      <input id="p-color" type="color" />
+    </div>
+    
+
+          <div class="row">
+            <label>Size</label>
+            <div class="grid2">
+              <input id="p-w" type="number" step="1" min="1" />
+              <input id="p-h" type="number" step="1" min="1" />
+            </div>
+            <div class="mini muted">For characters/cameras, Width controls icon size.</div>
+          </div>
+        </form>
+      </div>
+    </aside>
+  </main>
+
+  <script type="module" src="./app.js"></script>
+</body>
 </html>
