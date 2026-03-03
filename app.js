@@ -1155,14 +1155,22 @@ window.addEventListener('keydown', (e)=>{
   const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform);
   const mod = isMac ? e.metaKey : e.ctrlKey;
 
+  // Don't hijack Delete/Backspace while typing in fields
+  const t = e.target;
+  const tag = (t && t.tagName) ? t.tagName.toLowerCase() : '';
+  const isTyping = !!(t && (t.isContentEditable || tag === 'input' || tag === 'textarea' || tag === 'select'));
+
   if (mod && !e.shiftKey && e.key.toLowerCase() === 'z'){
     e.preventDefault();
     undo();
   } else if (mod && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))){
     e.preventDefault();
     redoDo();
-  } else if (e.key === 'Delete'){
-    if (state.selectedId) deleteSelected();
+  } else if (!isTyping && (e.key === 'Delete' || e.key === 'Backspace')){
+    if (state.selectedId){
+      e.preventDefault();
+      deleteSelected();
+    }
   }
 });
 window.addEventListener('keyup', (e)=>{
