@@ -1,3 +1,66 @@
+
+
+
+
+function createTrackTargetFor(sourceEl){
+  // Creates a linked track target for cameras or characters.
+  // Cameras keep the existing trackTarget element type; characters get a real 'character' element
+  // so dragging/rotating behaves exactly like a normal character.
+  pushHistory();
+
+  // Remove existing target if present
+  if (sourceEl.trackToId){
+    state.elements = state.elements.filter(e => e.id !== sourceEl.trackToId);
+    sourceEl.trackToId = null;
+  }
+
+  let target;
+  if (sourceEl.type === 'character'){
+    target = {
+      id: uid(),
+      type: 'character',
+      isTrackTarget: true,
+      parentId: sourceEl.id,
+      noExport: true,
+      x: sourceEl.x + 120,
+      y: sourceEl.y,
+      rotation: sourceEl.rotation || 0,
+      scaleX: sourceEl.scaleX ?? 1,
+      scaleY: sourceEl.scaleY ?? 1,
+      color: sourceEl.color || '#3b82f6',
+      label: '',         // no label on targets
+      width: sourceEl.width ?? 40,
+      height: sourceEl.height ?? 40,
+    };
+  } else {
+    // camera (original behavior)
+    target = {
+      id: uid(),
+      type: 'trackTarget',
+      trackFor: sourceEl.type, // camera
+      parentId: sourceEl.id,
+      x: sourceEl.x + 80,
+      y: sourceEl.y,
+      rotation: sourceEl.rotation || 0,
+      color: sourceEl.color || '#1c1917',
+      scaleX: sourceEl.scaleX ?? 1,
+      scaleY: sourceEl.scaleY ?? 1,
+      width: sourceEl.width,
+      height: sourceEl.height,
+      noExport: true
+    };
+  }
+
+  state.elements.push(target);
+  sourceEl.trackToId = target.id;
+  sourceEl.trackMode = sourceEl.trackMode || 'to'; // 'to' | 'from' | 'between'
+
+  saveToStorage();
+  state.selectedId = target.id;
+  syncPropsUI();
+  syncButtons();
+  draw();
+}
 // Shot Planner (Vanilla) — single-file app logic.
 // No build step. Works on GitHub Pages.
 
@@ -256,6 +319,20 @@ function deleteSelected(){
 
   const sel = getSelected();
 
+  // If deleting a character, also delete its track target (if any)
+  if (sel && sel.type === 'character' && sel.trackToId){
+    const tid = sel.trackToId;
+    state.elements = state.elements.filter(e => e.id !== tid);
+  }
+
+  // If deleting a character track target, unlink its parent character (keep parent)
+  if (sel && sel.isTrackTarget && sel.parentId){
+    const parent = state.elements.find(e => e.id === sel.parentId);
+    if (parent && parent.type === 'character' && parent.trackToId === sel.id){
+      parent.trackToId = null;
+    }
+  }
+
   // If deleting a camera, also delete its track target (if any)
   if (sel && sel.type === 'camera' && sel.trackToId){
     const tid = sel.trackToId;
@@ -341,19 +418,19 @@ function drawTrackArrows(){
   ctx.strokeStyle = 'rgba(17,17,17,0.55)';
   ctx.fillStyle = 'rgba(17,17,17,0.55)';
 
-  for (const cam of state.elements){
-    if (cam.type !== 'camera' || !cam.trackToId) continue;
-    const target = state.elements.find(e => e.id === cam.trackToId);
+  for (const src of state.elements){
+    if ((src.type !== 'camera' && src.type !== 'character') || !src.trackToId) continue;
+    const target = state.elements.find(e => e.id === src.trackToId);
     if (!target) continue;
 
-    const a = worldToScreen(cam.x, cam.y);
+    const a = worldToScreen(src.x, src.y);
     const b = worldToScreen(target.x, target.y);
 
     const ax = a.x * dpr, ay = a.y * dpr;
     const bx = b.x * dpr, by = b.y * dpr;
 
     
-    const mode = cam.trackMode || 'to';
+    const mode = src.trackMode || 'to';
 
 // Line + arrowheads (with gaps from both camera icons)
     const dx = bx - ax;
@@ -440,7 +517,7 @@ function drawElement(el){
 
   ctx.save();
   ctx.translate(p.x * dpr, p.y * dpr);
-  ctx.rotate(rad(el.rotation));
+  ctx.rotate(rad(el.rotation || 0));
   // Elegant selection indicator: soft drop shadow + subtle glow
     if (el.id === state.selectedId){
       // soft elevation shadow
@@ -464,7 +541,9 @@ ctx.fillStyle = el.color || '#999';
   ctx.strokeStyle = 'rgba(255,255,255,0.18)';
   ctx.lineWidth = 2 * dpr;
 
-  if (el.type === 'character'){
+  const drawAsType = (el.type === 'trackTarget') ? (el.trackFor || 'camera') : el.type;
+
+  if (drawAsType === 'character'){
     const r = (Math.max(el.width||40, el.height||40) / 2) * el.scaleX * view.scale * dpr;
     ctx.beginPath();
     ctx.arc(0,0,r,0,Math.PI*2);
@@ -479,7 +558,7 @@ ctx.fillStyle = el.color || '#999';
     ctx.lineTo(r,0);
     ctx.stroke();
   }
-  else if (el.type === 'camera' || el.type === 'trackTarget'){
+  else if (drawAsType === 'camera'){
     const size = (Math.max(el.width||52, el.height||52)) * el.scaleX * view.scale * dpr;
     const s = size/2;
 
@@ -611,7 +690,7 @@ function drawSelection(el){
 
   ctx.save();
   ctx.translate(p.x * dpr, p.y * dpr);
-  ctx.rotate(rad(el.rotation));
+  ctx.rotate(rad(el.rotation || 0));
   ctx.strokeStyle = 'rgba(59,130,246,0.95)';
   ctx.lineWidth = 2 * dpr;
   
@@ -958,70 +1037,35 @@ btnExportCsv.addEventListener('click', ()=>{ exportToExcel(); });
 // Track direction (to / from / between)
 if (pTrackMode){
   pTrackMode.addEventListener('change', () => {
-    const el = getSelected();
-    if (!el) return;
+  const el = getSelected();
+  if (!el) return;
 
-    // If selecting the target, update its parent camera
-    if (el.type === 'trackTarget'){
-      const parentCam = state.elements.find(e => e.type === 'camera' && e.trackToId === el.id);
-      if (!parentCam) return;
-      parentCam.trackMode = pTrackMode.value;
-      saveToStorage();
-      draw();
-      return;
-    }
-
-    if (el.type !== 'camera') return;
-    el.trackMode = pTrackMode.value;
+  // If selecting a track target (camera trackTarget or character isTrackTarget), update the parent
+  if (el.type === 'trackTarget' || el.isTrackTarget){
+    const parent = state.elements.find(e => e.id === (el.parentId || null)) ||
+                   state.elements.find(e => (e.type === 'camera' || e.type === 'character') && e.trackToId === el.id);
+    if (!parent) return;
+    parent.trackMode = pTrackMode.value;
     saveToStorage();
     draw();
-  });
+    return;
+  }
+
+  if (el.type !== 'camera' && el.type !== 'character') return;
+  el.trackMode = pTrackMode.value;
+  saveToStorage();
+  draw();
+});
 }
 
 // Track To... (camera movement target)
 if (btnTrackTo){
   btnTrackTo.addEventListener('click', () => {
-    const cam = getSelected();
-    if (!cam || cam.type !== 'camera') return;
-
-    // If already has a target, select it (or recreate if missing)
-    if (cam.trackToId){
-      const existing = state.elements.find(e => e.id === cam.trackToId);
-      if (existing){
-        state.selectedId = existing.id;
-        syncPropsUI();
-        draw();
-        return;
-      }
-    }
-
-    pushHistory();
-
-    const id = `trk-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`;
-    const target = {
-      id,
-      type: 'trackTarget',
-      x: cam.x + 120,
-      y: cam.y,
-      rotation: cam.rotation || 0,
-      scaleX: 1,
-      scaleY: 1,
-      color: cam.color || '#1c1917',
-      width: 44,
-      height: 44,
-      parentId: cam.id,
-    };
-
-    state.elements.push(target);
-    cam.trackToId = id;
-    cam.trackMode = cam.trackMode || 'to';
-
-    state.selectedId = id;
-    syncPropsUI();
-    syncButtons();
-    saveToStorage();
-    draw();
-  });
+  const el = getSelected();
+  if (!el) return;
+  if (el.type !== 'camera' && el.type !== 'character') return;
+  createTrackTargetFor(el);
+});
 }
 
 function csvEscape(v){
@@ -1070,8 +1114,8 @@ function syncPropsUI(skipFocusPreserve=false){
     if (rowTrackTo) rowTrackTo.classList.add('hidden');
     if (rowTrackMode) rowTrackMode.classList.remove('hidden');
 
-    const parentCam = state.elements.find(e => e.type === 'camera' && e.trackToId === el.id);
-    if (pTrackMode) pTrackMode.value = (parentCam?.trackMode || 'to');
+    const parent = state.elements.find(e => (e.type === 'camera' || e.type === 'character') && e.trackToId === el.id);
+    if (pTrackMode) pTrackMode.value = (parent?.trackMode || 'to');
 
     return;
   }
