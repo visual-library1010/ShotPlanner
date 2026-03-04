@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Shot Planner (Vanilla)</title>
+  <title>Shot Planner (Vanilla) v101</title>
   <link rel="stylesheet" href="./style.css" />
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet" />
 </head>
@@ -31,9 +31,29 @@
   <main class="layout">
     <aside class="toolbar">
   <div class="toolstack">
-    <button class="toolicon" data-add="character" title="Add Character">
-      <span class="material-symbols-outlined">person</span>
-    </button>
+    <div class="toolicon-wrap" id="add-character-wrap">
+      <button class="toolicon" data-add="character" title="Add Character">
+        <span class="material-symbols-outlined">person</span>
+      </button>
+      <div class="preset-menu" id="character-presets" aria-label="Character presets">
+        <button class="preset-item" type="button" data-character-preset="Jesus" data-color="#3b82f6"><span class="dot" style="--dot:#3b82f6"></span>Jesus</button>
+        <button class="preset-item" type="button" data-character-preset="Apostle" data-color="#6b7280"><span class="dot" style="--dot:#6b7280"></span>Apostle</button>
+        <button class="preset-item" type="button" data-character-preset="John" data-color="#22c55e"><span class="dot" style="--dot:#22c55e"></span>John</button>
+        <button class="preset-item" type="button" data-character-preset="Peter" data-color="#ef4444"><span class="dot" style="--dot:#ef4444"></span>Peter</button>
+        <button class="preset-item" type="button" data-character-preset="James" data-color="#f59e0b"><span class="dot" style="--dot:#f59e0b"></span>James</button>
+        <button class="preset-item" type="button" data-character-preset="Andrew" data-color="#6b7280"><span class="dot" style="--dot:#6b7280"></span>Andrew</button>
+        <button class="preset-item" type="button" data-character-preset="Matthew" data-color="#6b7280"><span class="dot" style="--dot:#6b7280"></span>Matthew</button>
+        <button class="preset-item" type="button" data-character-preset="Matthias" data-color="#6b7280"><span class="dot" style="--dot:#6b7280"></span>Matthias</button>
+        <button class="preset-item" type="button" data-character-preset="Philip" data-color="#6b7280"><span class="dot" style="--dot:#6b7280"></span>Philip</button>
+        <button class="preset-item" type="button" data-character-preset="Thomas" data-color="#6b7280"><span class="dot" style="--dot:#6b7280"></span>Thomas</button>
+
+        <button class="preset-item" type="button" data-character-preset="Nathanael" data-color="#6b7280"><span class="dot" style="--dot:#6b7280"></span>Nathanael</button>
+        <button class="preset-item" type="button" data-character-preset="Simon" data-color="#6b7280"><span class="dot" style="--dot:#6b7280"></span>Simon</button>
+        <button class="preset-item" type="button" data-character-preset="Thaddaeus" data-color="#6b7280"><span class="dot" style="--dot:#6b7280"></span>Thaddaeus</button>
+        <button class="preset-item" type="button" data-character-preset="James (SOA)" data-color="#6b7280"><span class="dot" style="--dot:#6b7280"></span>James (SOA)</button>
+
+      </div>
+    </div>
     <button class="toolicon" data-add="camera" title="Add Camera">
       <span class="material-symbols-outlined">videocam</span>
     </button>
@@ -106,7 +126,15 @@
   </div>
   <div class="row">
     <label>Lens</label>
-    <input id="p-lens" type="text" />
+    <select id="p-lens">
+      <option value="">(none)</option>
+      <option>18mm</option>
+      <option>24mm</option>
+      <option>35mm</option>
+      <option>50mm</option>
+      <option>75mm</option>
+      <option>100mm</option>
+    </select>
   </div>
 </div>
 
@@ -120,6 +148,22 @@
     <input id="p-setupNumber" type="text" />
   </div>
 </div>
+
+<div class="row" id="row-camera-support">
+    <label>Camera Support</label>
+                  <select id="p-cameraSupport">
+                    <option value="">—</option>
+                                    <option value="Tripod">Tripod</option>
+    <option value="Dolly">Dolly</option>
+                    <option value="Drone">Drone</option>
+                    <option value="Gimbal">Gimbal</option>
+                    <option value="Handheld">Handheld</option>
+                    <option value="Jib">Jib</option>
+                    <option value="MovieBird">MovieBird</option>
+                    <option value="Slider">Slider</option>
+                    <option value="Trinity">Trinity</option>
+                  </select>
+  </div>
 <div class="grid2">
             <div class="row">
               <label>X</label>
@@ -156,18 +200,7 @@
               <textarea id="p-productionNotes" rows="3"></textarea>
             </div>
             <div class="row">
-              <label>Camera Support</label>
-              <select id="p-cameraSupport">
-                <option value="">—</option>
-                <option value="Dolly">Dolly</option>
-                <option value="Drone">Drone</option>
-                <option value="Gimbal">Gimbal</option>
-                <option value="Handheld">Handheld</option>
-                <option value="Jib">Jib</option>
-                <option value="MovieBird">MovieBird</option>
-                <option value="Slider">Slider</option>
-                <option value="Trinity">Trinity</option>
-              </select>
+              
             </div>
           </div>
 

@@ -114,6 +114,36 @@ const P = {
 
 const STORAGE_KEY = 'shot-designer-vanilla-scene-v1';
 
+
+function getElementLabelText(el){
+  if (!el || el.type === 'label') return '';
+  if (el.type === 'camera'){
+    const shotNum = (el.shotNumber || '').toString().trim();
+    const shotType = (el.shotType || '').toString().trim();
+    let text = '';
+    if (shotNum) text = 'Shot ' + shotNum;
+    if (shotNum && shotType) text += ' - ' + shotType;
+    else if (!shotNum && shotType) text = shotType;
+    return text.trim();
+  }
+  return ((el.label || '').toString()).trim();
+}
+
+function getDefaultLabelOffset(el){
+  const h = (el && el.height) ? el.height : 60;
+  return { dx: 0, dy: h * 0.60 };
+}
+
+function ensureLabelOffsets(){
+  for (const el of state.elements){
+    if (el.type === 'trackTarget' || el.isTrackTarget) continue;
+    if (typeof el.labelDx !== 'number') el.labelDx = 0;
+    if (typeof el.labelDy !== 'number'){
+      const d = getDefaultLabelOffset(el);
+      el.labelDy = d.dy;
+    }
+  }
+}
 // ---------- State ----------
 let state = {
   elements: [],
@@ -155,17 +185,20 @@ const INITIAL_ELEMENTS = [
     scaleX: 1,
     scaleY: 1,
     color: '#1c1917',
-    label: 'Cam A',
+    label: 'A',
     width: 52,
-    height: 52,    shotNumber: '',
+    height: 52,
+    shotNumber: '1',
     shotType: '',
     lens: '',
     nickname: '',
+      cameraSupport: 'Tripod',
+      cameraSupport: 'Tripod',
     techNotes: '',
     productionNotes: '',
     sceneNumber: '',
-    setupNumber: '',
-    cameraSupport: '',
+    setupNumber: '1',
+    cameraSupport: 'Tripod',
   },
 ];
 
@@ -176,6 +209,16 @@ function deg(r){ return (r * 180) / Math.PI; }
 function uid(prefix){
   const r = Math.random().toString(16).slice(2, 8);
   return `${prefix}-${r}`;
+}
+
+function getNextShotNumber(){
+  // Auto-incrementing shot numbers for cameras (ignores tracked/track-target cameras).
+  const nums = state.elements
+    .filter(e => e.type === 'camera' && !e.isTrackTarget)
+    .map(e => parseInt(e.shotNumber, 10))
+    .filter(n => Number.isFinite(n));
+  const max = nums.length ? Math.max(...nums) : 0;
+  return max + 1;
 }
 
 function deepClone(obj){
@@ -377,7 +420,7 @@ function updateElement(id, patch){
   draw();
 }
 
-function addElement(type){
+function addElement(type, overrides = null){
   pushHistory();
   const center = screenToWorld(canvas.clientWidth/2, canvas.clientHeight/2);
   let el = {
@@ -395,23 +438,27 @@ function addElement(type){
   };
 
   if (type === 'character'){
-    el.color = '#3b82f6';
-    el.label = 'Character';
+    el.color = '#6b7280';
+    el.label = '';
     el.width = 40; el.height = 40;
   } else if (type === 'camera'){
     el.color = '#1c1917';
-    el.label = 'Camera';
+    // Camera ID defaults to "A" but remains editable in the field.
+    el.label = 'A';
     el.width = 52; el.height = 52;
     el.fov = 60;
-    el.shotNumber = '';
+
+    // Shot # auto-increments per camera added (track targets are not cameras, so they don't affect this).
+    el.shotNumber = String(getNextShotNumber());
     el.shotType = '';
-    el.lens = '';
+    el.lens = '35mm';
     el.nickname = '';
     el.techNotes = '';
     el.productionNotes = '';
     el.sceneNumber = '';
-    el.setupNumber = '';
-    el.cameraSupport = '';
+    // Setup defaults to 1
+    el.setupNumber = '1';
+    el.cameraSupport = 'Tripod';
   } else if (type === 'wall'){
     el.color = '#f59e0b';
     el.label = 'Wall';
@@ -424,6 +471,19 @@ function addElement(type){
     el.color = '#e5e7eb';
     el.label = 'Label';
     el.width = 140; el.height = 30;
+  }
+
+  if (overrides && typeof overrides === 'object'){
+    Object.assign(el, overrides);
+  }
+
+  // Default label anchor offsets (draggable label)
+  if (type !== 'trackTarget' && !el.isTrackTarget){
+    if (typeof el.labelDx !== 'number') el.labelDx = 0;
+    if (typeof el.labelDy !== 'number'){
+      const d = getDefaultLabelOffset(el);
+      el.labelDy = d.dy;
+    }
   }
 
   state.elements.push(el);
@@ -822,39 +882,29 @@ ctx.fillStyle = (inheritedColor || el.color) || '#999';
     ctx.fillText((el.label || 'Label').slice(0, 50), 0, 0, ww*0.95);
   }
 
-  // Text under icons
-  if (el.type !== 'label'){
-    ctx.save();
-    ctx.rotate(-rad(el.rotation));
-    ctx.fillStyle = '#000000';
-    ctx.font = `${Math.max(12, 12*view.scale*dpr)}px ui-sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-
-    if (el.type === 'camera'){
-      const shotNum = (el.shotNumber || '').toString().trim();
-      const shotType = (el.shotType || '').toString().trim();
-
-      let text = '';
-      if (shotNum) text = 'Shot ' + shotNum;
-      if (shotNum && shotType) text += ' - ' + shotType;
-      else if (!shotNum && shotType) text = shotType;
-
-      if (text){
-        ctx.fillText(text, 0, (h*0.55)*dpr, 260*dpr);
-      }
-    } else {
-      const label = (el.label || '').trim();
-      if (label){
-        ctx.fillText(label, 0, (h*0.55)*dpr, 220*dpr);
-      }
-    }
-
-    ctx.restore();
-  }
-
   ctx.restore();
+  ctx.restore();
+
+  // Draggable label (anchored to element)
+  if (el.type !== 'label'){
+    const text = getElementLabelText(el);
+    if (text){
+      const dx = (typeof el.labelDx === 'number') ? el.labelDx : 0;
+      const dy = (typeof el.labelDy === 'number') ? el.labelDy : getDefaultLabelOffset(el).dy;
+      const lp = worldToScreen(el.x + dx, el.y + dy);
+
+      ctx.save();
+      ctx.fillStyle = '#000000';
+      const fontPx = Math.max(12, 12 * view.scale);
+      ctx.font = `${fontPx * dpr}px ui-sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillText(text.slice(0, 50), lp.x * dpr, lp.y * dpr, 320 * dpr);
+      ctx.restore();
+    }
+  }
 }
+
 
 
 function drawSelection(el){
@@ -960,6 +1010,48 @@ function hitTest(worldX, worldY){
   return null;
 }
 
+
+function labelBoundsScreen(el){
+  if (!el) return null;
+  if (el.type === 'trackTarget' || el.isTrackTarget) return null;
+  const text = getElementLabelText(el);
+  if (!text) return null;
+
+  const dx = (typeof el.labelDx === 'number') ? el.labelDx : 0;
+  const dy = (typeof el.labelDy === 'number') ? el.labelDy : getDefaultLabelOffset(el).dy;
+  const lp = worldToScreen(el.x + dx, el.y + dy);
+
+  const dpr = window.devicePixelRatio || 1;
+  const fontPx = Math.max(12, 12 * view.scale);
+
+  ctx.save();
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.font = `${fontPx * dpr}px ui-sans-serif`;
+  const wPx = ctx.measureText(text.slice(0, 50)).width / dpr;
+  ctx.restore();
+
+  const pad = 6;
+  const hPx = fontPx;
+  return {
+    x0: lp.x - wPx/2 - pad,
+    x1: lp.x + wPx/2 + pad,
+    y0: lp.y - pad,
+    y1: lp.y + hPx + pad,
+  };
+}
+
+function hitTestLabel(screenX, screenY){
+  for (let i = state.elements.length - 1; i >= 0; i--){
+    const el = state.elements[i];
+    const b = labelBoundsScreen(el);
+    if (!b) continue;
+    if (screenX >= b.x0 && screenX <= b.x1 && screenY >= b.y0 && screenY <= b.y1){
+      return el;
+    }
+  }
+  return null;
+}
+
 function pointInElement(px, py, el){
   // transform point into element local space
   const dx = px - el.x;
@@ -997,6 +1089,19 @@ canvas.addEventListener('mousedown', (e)=>{
   const w = screenToWorld(sx, sy);
 
   if (e.button !== 0) return;
+  // label drag (draggable, anchored label)
+  const hitLbl = hitTestLabel(sx, sy);
+  if (hitLbl){
+    setSelected(hitLbl.id);
+    drag.active = true;
+    drag.mode = 'label';
+    drag.startEl = deepClone(hitLbl);
+    drag.startWorld = w;
+    pushHistory();
+    canvas.style.cursor = 'grabbing';
+    return;
+  }
+
 // If clicking the rotation handle of the currently selected element, start rotating immediately.
 const currentSel = getSelected();
 if (currentSel && hitRotationHandle(w.x, w.y, currentSel)){
@@ -1020,6 +1125,7 @@ if (currentSel && hitRotationHandle(w.x, w.y, currentSel)){
     canvas.style.cursor = 'grabbing';
     return;
   }
+
 
   const hit = hitTest(w.x, w.y);
   if (!hit){
@@ -1051,76 +1157,90 @@ drag.mode = 'move';
 });
 
 canvas.addEventListener('mousemove', (e)=>{
+  // Hover cursor hints
   if (!drag.active){
     const rect = canvas.getBoundingClientRect();
     const sx = e.clientX - rect.left;
     const sy = e.clientY - rect.top;
     const w = screenToWorld(sx, sy);
+
     const sel = getSelected();
     if (sel && hitRotationHandle(w.x, w.y, sel)){
       canvas.style.cursor = 'grab';
+    } else if (hitTestLabel(sx, sy)){
+      canvas.style.cursor = 'pointer';
     } else {
       canvas.style.cursor = 'default';
     }
     return;
   }
 
-  if (!drag.active) return;
-
   const rect = canvas.getBoundingClientRect();
   const sx = e.clientX - rect.left;
   const sy = e.clientY - rect.top;
 
+  // Pan uses screen space deltas
   if (drag.mode === 'pan'){
     const dx = sx - drag.startWorld.x;
     const dy = sy - drag.startWorld.y;
     view.offsetX = drag.startOffset.x + dx;
     view.offsetY = drag.startOffset.y + dy;
     draw();
-  return;
-}
+    return;
+  }
 
-if (drag.mode === 'rotate'){
+  const w = screenToWorld(sx, sy);
   const sel = getSelected();
   if (!sel || !drag.startEl) return;
 
-  const w = screenToWorld(sx, sy);
-  const a0 = drag.startAngle;
-  const a1 = Math.atan2(w.y - drag.startEl.y, w.x - drag.startEl.x);
-  const delta = a1 - a0;
-  let next = (drag.startEl.rotation || 0) + deg(delta);
+  if (drag.mode === 'label'){
+    // Draggable anchored label: store offset in world units
+    sel.labelDx = w.x - sel.x;
+    sel.labelDy = w.y - sel.y;
 
-  // normalize to [-180, 180]
-  next = ((next + 180) % 360) - 180;
+    const idx = state.elements.findIndex(x => x.id === sel.id);
+    if (idx >= 0) state.elements[idx] = sel;
 
-  sel.rotation = next;
+    saveToStorage();
+    syncPropsUI(true);
+    draw();
+    return;
+  }
+
+  if (drag.mode === 'rotate'){
+    const a0 = drag.startAngle;
+    const a1 = Math.atan2(w.y - drag.startEl.y, w.x - drag.startEl.x);
+    const delta = a1 - a0;
+    let next = (drag.startEl.rotation || 0) + deg(delta);
+
+    // normalize to [-180, 180]
+    next = ((next + 180) % 360) - 180;
+
+    sel.rotation = next;
+
+    const idx = state.elements.findIndex(x => x.id === sel.id);
+    if (idx >= 0) state.elements[idx] = sel;
+
+    saveToStorage();
+    syncPropsUI(true);
+    draw();
+    return;
+  }
+
+  // Default: move element
+  const dx = w.x - drag.startWorld.x;
+  const dy = w.y - drag.startWorld.y;
+  sel.x = drag.startEl.x + dx;
+  sel.y = drag.startEl.y + dy;
+
   const idx = state.elements.findIndex(x => x.id === sel.id);
   if (idx >= 0) state.elements[idx] = sel;
 
   saveToStorage();
   syncPropsUI(true);
   draw();
-  return;
-}
-
-const w = screenToWorld(sx, sy);
-
-  const sel = getSelected();
-  if (!sel || !drag.startEl) return;
-
-  const dx = w.x - drag.startWorld.x;
-  const dy = w.y - drag.startWorld.y;
-  sel.x = drag.startEl.x + dx;
-  sel.y = drag.startEl.y + dy;
-
-  // reflect
-  const idx = state.elements.findIndex(x => x.id === sel.id);
-  if (idx >= 0) state.elements[idx] = sel;
-
-  saveToStorage();
-  syncPropsUI(true); // keep typing smooth
-  draw();
 });
+
 
 window.addEventListener('mouseup', ()=>{
   if (!drag.active) return;
@@ -1184,6 +1304,18 @@ document.querySelectorAll('[data-add]').forEach(btn=>{
   });
 });
 
+// Character presets (hover menu)
+document.querySelectorAll('[data-character-preset]').forEach(btn=>{
+  btn.addEventListener('click', (e)=>{
+    e.preventDefault();
+    e.stopPropagation();
+    const name = btn.getAttribute('data-character-preset') || 'Character';
+    const color = btn.getAttribute('data-color') || '#3b82f6';
+    addElement('character', { label: name, color });
+    draw();
+  });
+});
+
 btnDelete.addEventListener('click', onDeletePressed);
 
 btnUndo.addEventListener('click', undo);
@@ -1202,7 +1334,8 @@ fileLoad.addEventListener('change', async ()=>{
     const parsed = JSON.parse(txt);
     if (!Array.isArray(parsed.elements)) throw new Error('Missing elements[]');
     pushHistory();
-    state.elements = parsed.elements;
+    state.elements = normalizeElements(parsed.elements);
+    ensureLabelOffsets();
     state.selectedId = null;
     saveToStorage();
     syncPropsUI();
@@ -1474,6 +1607,7 @@ if (cameraPalette){
 function init(){
   const saved = loadFromStorage();
   state.elements = normalizeElements(saved ?? deepClone(INITIAL_ELEMENTS));
+  ensureLabelOffsets();
   state.selectedId = null;
   history = [];
   redo = [];

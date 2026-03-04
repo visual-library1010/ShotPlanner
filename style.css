@@ -122,6 +122,55 @@ body{
 .toolicon.danger .material-symbols-outlined{color: rgba(239,68,68,0.90)}
 .toolsep{height:1px; background: rgba(0,0,0,0.10); margin:2px 0}
 
+.toolicon-wrap{position:relative;}
+.preset-menu{
+  position:absolute;
+  left:62px;
+  top:0;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow-soft);
+  padding:8px;
+  min-width: 170px;
+  display:none;
+  flex-direction:column;
+  gap:6px;
+  z-index: 100;
+}
+.toolicon-wrap:hover .preset-menu{display:flex;}
+
+.preset-menu::before{
+  content:"";
+  position:absolute;
+  left:-14px;
+  top:0;
+  width:14px;
+  height:100%;
+}
+
+.preset-item{
+  all:unset;
+  cursor:pointer;
+  user-select:none;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:8px 10px;
+  border-radius: 12px;
+  font-size: 13px;
+  color: rgba(0,0,0,0.78);
+}
+.preset-item:hover{background: rgba(0,0,0,0.04)}
+.preset-item:active{transform: translateY(1px)}
+.preset-item .dot{
+  width:10px;height:10px;
+  border-radius:999px;
+  background: var(--dot);
+  border: 1px solid rgba(0,0,0,0.12);
+  flex: 0 0 auto;
+}
+
 .canvas-wrap{
   position:relative;
   background: transparent;
