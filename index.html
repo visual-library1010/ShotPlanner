@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Shot Planner (Vanilla) v101</title>
+  <title>Shot Planner (Vanilla) v112</title>
   <link rel="stylesheet" href="./style.css" />
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet" />
 </head>
@@ -31,6 +31,14 @@
   <main class="layout">
     <aside class="toolbar">
   <div class="toolstack">
+
+    <div class="toolicon-wrap" id="add-scene-wrap">
+      <button id="btn-scene" class="toolicon" title="Scenes (click to add new)">
+        <span class="material-symbols-outlined">theaters</span>
+      </button>
+      <div class="preset-menu" id="scene-menu" aria-label="Scenes"></div>
+    </div>
+
     <div class="toolicon-wrap" id="add-character-wrap">
       <button class="toolicon" data-add="character" title="Add Character">
         <span class="material-symbols-outlined">person</span>
@@ -82,7 +90,35 @@
     <aside class="props">
       <div class="panel">
         <div class="panel-title">Properties</div>
-        <div id="props-empty" class="muted">Select an element to edit.</div>
+        <div id="props-empty" class="muted">Select an element to edit.
+        </div>
+
+        <form id="scene-form" class="form hidden">
+          <div class="row">
+            <label>Scene #</label>
+            <input id="p-scene" type="text" />
+          </div>
+
+          <div class="row">
+            <label>Color</label>
+            <div class="palette" id="scene-palette">
+              <button type="button" class="swatch" data-color="#ef4444"></button>
+              <button type="button" class="swatch" data-color="#f97316"></button>
+              <button type="button" class="swatch" data-color="#f59e0b"></button>
+              <button type="button" class="swatch" data-color="#22c55e"></button>
+              <button type="button" class="swatch" data-color="#06b6d4"></button>
+              <button type="button" class="swatch" data-color="#3b82f6"></button>
+              <button type="button" class="swatch" data-color="#6366f1"></button>
+              <button type="button" class="swatch" data-color="#a855f7"></button>
+              <button type="button" class="swatch" data-color="#ec4899"></button>
+              <button type="button" class="swatch" data-color="#6b7280"></button>
+              <button type="button" class="swatch" data-color="#ffffff"></button>
+            </div>
+          </div>
+        
+          <div class="toolsep"></div>
+          <button id="btn-delete-scene" type="button" class="btn danger">Delete Scene</button>
+</form>
 
         <form id="props-form" class="form hidden">
           <div class="row">
@@ -102,68 +138,20 @@
   <input id="p-characterName" type="text" />
 </div>
 
-<div class="grid2" id="row-camera-id-shot">
-      <div class="row">
-        <label>Camera ID</label>
-        <input id="p-label" type="text" />
-      </div>
-      <div class="row" id="row-shotNumber">
-        <label>Shot #</label>
-        <input id="p-shotNumber" type="text" />
-      </div>
-    </div>
+
+
     
 
           
-<div class="grid2" id="row-shottype-lens">
-  <div class="row">
-    <label>Shot Type</label>
-    <select id="p-shotType">
-      <option value="">(none)</option>
-      <option>EWS</option><option>WS</option><option>MWS</option><option>FS</option>
-      <option>MS</option><option>MCU</option><option>CU</option><option>ECU</option>
-    </select>
-  </div>
-  <div class="row">
-    <label>Lens</label>
-    <select id="p-lens">
-      <option value="">(none)</option>
-      <option>18mm</option>
-      <option>24mm</option>
-      <option>35mm</option>
-      <option>50mm</option>
-      <option>75mm</option>
-      <option>100mm</option>
-    </select>
-  </div>
-</div>
 
-<div class="grid2" id="row-scene-setup">
-  <div class="row">
-    <label>Scene #</label>
-    <input id="p-sceneNumber" type="text" />
-  </div>
-  <div class="row">
-    <label>Setup #</label>
-    <input id="p-setupNumber" type="text" />
-  </div>
-</div>
 
-<div class="row" id="row-camera-support">
-    <label>Camera Support</label>
-                  <select id="p-cameraSupport">
-                    <option value="">—</option>
-                                    <option value="Tripod">Tripod</option>
-    <option value="Dolly">Dolly</option>
-                    <option value="Drone">Drone</option>
-                    <option value="Gimbal">Gimbal</option>
-                    <option value="Handheld">Handheld</option>
-                    <option value="Jib">Jib</option>
-                    <option value="MovieBird">MovieBird</option>
-                    <option value="Slider">Slider</option>
-                    <option value="Trinity">Trinity</option>
-                  </select>
-  </div>
+
+
+
+
+
+
+
 <div class="grid2">
             <div class="row">
               <label>X</label>
@@ -187,6 +175,64 @@
           </div>
 
           <div id="camera-fields" class="hidden">
+<div class="grid2" id="row-camera-id-shot">
+      <div class="row">
+        <label>Camera ID</label>
+        <input id="p-label" type="text" />
+      </div>
+      <div class="row" id="row-shotNumber">
+        <label>Shot #</label>
+        <input id="p-shotNumber" type="text" />
+      </div>
+    </div>
+<div class="grid2" id="row-shottype-lens">
+  <div class="row">
+    <label>Shot Type</label>
+    <select id="p-shotType">
+      <option value="">(none)</option>
+      <option>EWS</option><option>WS</option><option>MWS</option><option>FS</option>
+      <option>MS</option><option>MCU</option><option>CU</option><option>ECU</option>
+    </select>
+  </div>
+  <div class="row">
+    <label>Lens</label>
+    <select id="p-lens">
+      <option value="">(none)</option>
+      <option>18mm</option>
+      <option>24mm</option>
+      <option>35mm</option>
+      <option>50mm</option>
+      <option>75mm</option>
+      <option>100mm</option>
+    </select>
+  </div>
+</div>
+<div class="grid2" id="row-scene-setup">
+  <div class="row">
+    <label>Scene #</label>
+    <input id="p-sceneNumber" type="text" />
+  </div>
+<div class="row">
+    <label>Setup #</label>
+    <input id="p-setupNumber" type="text" />
+  </div>
+</div>
+<div class="row" id="row-camera-support">
+    <label>Camera Support</label>
+                  <select id="p-cameraSupport">
+                    <option value="">—</option>
+                                    <option value="Tripod">Tripod</option>
+    <option value="Dolly">Dolly</option>
+                    <option value="Drone">Drone</option>
+                    <option value="Gimbal">Gimbal</option>
+                    <option value="Handheld">Handheld</option>
+                    <option value="Jib">Jib</option>
+                    <option value="MovieBird">MovieBird</option>
+                    <option value="Slider">Slider</option>
+                    <option value="Trinity">Trinity</option>
+                  </select>
+  </div>
+
             <div class="row">
               <label>Nickname</label>
               <input id="p-nickname" type="text" />
@@ -198,9 +244,6 @@
             <div class="row">
               <label>Production Notes</label>
               <textarea id="p-productionNotes" rows="3"></textarea>
-            </div>
-            <div class="row">
-              
             </div>
           </div>
 
@@ -256,5 +299,19 @@
 
 
   <script type="module" src="./app.js"></script>
+
+  <!-- Delete Scene Modal -->
+  <div id="modal-delete-scene" class="sp-modal" aria-hidden="true">
+    <div class="sp-modal-backdrop" data-close="1"></div>
+    <div class="sp-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="modal-delete-scene-title">
+      <div class="sp-modal-title" id="modal-delete-scene-title">Delete this scene?</div>
+      <div class="sp-modal-body">This will permanently delete the current scene and everything on its canvas.</div>
+      <div class="sp-modal-actions">
+        <button class="btn" data-close="1" type="button">Cancel</button>
+        <button id="btn-confirm-delete-scene" class="btn danger" type="button">Delete</button>
+      </div>
+    </div>
+  </div>
+
 </body>
 </html>

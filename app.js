@@ -70,18 +70,39 @@ const ctx = canvas.getContext('2d');
 
 const hudZoom = document.getElementById('hud-zoom');
 
+const btnScene = document.getElementById('btn-scene');
+const sceneMenu = document.getElementById('scene-menu');
+const addSceneWrap = document.getElementById('add-scene-wrap');
+
 const btnUndo = document.getElementById('btn-undo');
 const btnRedo = document.getElementById('btn-redo');
 const btnSave = document.getElementById('btn-save');
 const btnExportCsv = document.getElementById('btn-export-csv');
 const btnDelete = document.getElementById('btn-delete');
 const modalClear = document.getElementById('modal-clear');
+const modalDeleteScene = document.getElementById('modal-delete-scene');
+const btnDeleteScene = document.getElementById('btn-delete-scene');
+const btnConfirmDeleteScene = document.getElementById('btn-confirm-delete-scene');
 const modalClearYes = document.getElementById('modal-clear-yes');
 const modalClearNo = document.getElementById('modal-clear-no');
 const fileLoad = document.getElementById('file-load');
+function openModal(modal){
+  if (!modal) return;
+  modal.setAttribute('aria-hidden','false');
+  modal.classList.add('open');
+}
+function closeModal(modal){
+  if (!modal) return;
+  modal.setAttribute('aria-hidden','true');
+  modal.classList.remove('open');
+}
+
 
 const propsEmpty = document.getElementById('props-empty');
 const propsForm = document.getElementById('props-form');
+const sceneForm = document.getElementById('scene-form');
+const pScene = document.getElementById('p-scene');
+const scenePalette = document.getElementById('scene-palette');
 const cameraFields = document.getElementById('camera-fields');
 const rowTrackTo = document.getElementById('row-trackto');
 const btnTrackTo = document.getElementById('btn-trackto');
@@ -112,7 +133,8 @@ const P = {
 };
 
 
-const STORAGE_KEY = 'shot-designer-vanilla-scene-v1';
+const STORAGE_KEY_V1 = 'shot-designer-vanilla-scene-v1';
+const STORAGE_KEY = 'shot-planner-scenes-v1';
 
 
 function getElementLabelText(el){
@@ -161,6 +183,19 @@ let view = {
   offsetX: 0,
   offsetY: 0,
 };
+
+// scenes (one scene per board)
+let scenes = []; // {id, name, color, elements, view}
+let activeSceneId = null;
+
+const SCENE_COLORS = ['#ef4444','#3b82f6','#f59e0b','#22c55e','#a855f7','#06b6d4','#f97316','#6366f1','#ec4899','#6b7280'];
+function nextSceneColor(){
+  const used = new Set(scenes.map(s => s.color).filter(Boolean));
+  for (const c of SCENE_COLORS){
+    if (!used.has(c)) return c;
+  }
+  return SCENE_COLORS[scenes.length % SCENE_COLORS.length];
+}
 
 const INITIAL_ELEMENTS = [
   {
@@ -271,17 +306,50 @@ function redoDo(){
 
 function saveToStorage(){
   try{
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ elements: state.elements }));
+    saveActiveSceneSnapshot();
+    const payload = {
+      activeSceneId,
+      scenes
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
   }catch(e){}
 }
 
 function loadFromStorage(){
+  // v2 scenes
   try{
     const saved = localStorage.getItem(STORAGE_KEY);
-    if (!saved) return null;
-    const parsed = JSON.parse(saved);
-    if (Array.isArray(parsed.elements)) return parsed.elements;
+    if (saved){
+      const parsed = JSON.parse(saved);
+      if (parsed && Array.isArray(parsed.scenes)){
+        scenes = parsed.scenes;
+        activeSceneId = parsed.activeSceneId || (scenes[0] && scenes[0].id) || null;
+        return { scenes, activeSceneId };
+      }
+    }
   }catch(e){}
+
+  // v1 migrate (single scene)
+  try{
+    const savedV1 = localStorage.getItem(STORAGE_KEY_V1);
+    if (savedV1){
+      const parsedV1 = JSON.parse(savedV1);
+      if (parsedV1 && Array.isArray(parsedV1.elements)){
+        const s = {
+          id: uid('scene'),
+          name: sceneNameForIndex(0),
+    sceneNumber: '',
+          color: nextSceneColor(),
+          elements: parsedV1.elements,
+          view: { scale: 1, offsetX: 0, offsetY: 0 }
+        };
+        scenes = [s];
+        activeSceneId = s.id;
+        return { scenes, activeSceneId };
+      }
+    }
+  }catch(e){}
+
   return null;
 }
 
@@ -1304,6 +1372,80 @@ document.querySelectorAll('[data-add]').forEach(btn=>{
   });
 });
 
+
+// Scenes (hover menu + click to create new scene)
+if (btnScene){
+  btnScene.addEventListener('click', (e)=>{
+    e.preventDefault();
+    e.stopPropagation();
+    createNewScene();
+    renderSceneMenu();
+  });
+}
+
+function isWithin(el, target){
+  if (!el || !target) return false;
+  return el === target || el.contains(target);
+}
+
+function setSceneMenuOpen(open){
+  if (!addSceneWrap || !sceneMenu) return;
+  addSceneWrap.classList.toggle('open', !!open);
+  sceneMenu.classList.toggle('open', !!open);
+}
+
+// Keep menu open while hovering button OR menu, like character presets
+if (addSceneWrap){
+  addSceneWrap.addEventListener('mouseenter', ()=>{ renderSceneMenu(); setSceneMenuOpen(true); });
+  addSceneWrap.addEventListener('mouseleave', (e)=>{
+    // If leaving to an element still inside wrap, ignore
+    const rel = e.relatedTarget;
+    if (isWithin(addSceneWrap, rel)) return;
+    setSceneMenuOpen(false);
+  });
+}
+
+// Close menu on click outside
+document.addEventListener('click', (e)=>{
+  if (!addSceneWrap) return;
+  if (!isWithin(addSceneWrap, e.target)){
+    setSceneMenuOpen(false);
+  }
+});
+
+if (pScene){
+  pScene.addEventListener('input', ()=>{
+    updateSceneNumber(pScene.value);
+  });
+}
+if (scenePalette){
+  scenePalette.querySelectorAll('.swatch').forEach(btn=>{
+    btn.style.backgroundColor = btn.getAttribute('data-color') || 'transparent';
+    btn.addEventListener('click', (e)=>{
+      e.preventDefault();
+      e.stopPropagation();
+      updateSceneColor(btn.getAttribute('data-color') || '');
+    });
+  });
+}
+
+
+if (btnDeleteScene){
+  btnDeleteScene.addEventListener('click', (e)=>{
+    e.preventDefault();
+    e.stopPropagation();
+    openModal(modalDeleteScene);
+  });
+}
+if (btnConfirmDeleteScene){
+  btnConfirmDeleteScene.addEventListener('click', (e)=>{
+    e.preventDefault();
+    e.stopPropagation();
+    closeModal(modalDeleteScene);
+    deleteActiveScene();
+  });
+}
+
 // Character presets (hover menu)
 document.querySelectorAll('[data-character-preset]').forEach(btn=>{
   btn.addEventListener('click', (e)=>{
@@ -1403,6 +1545,164 @@ function downloadBlob(blob, filename){
 }
 
 // ---------- Properties panel ----------
+
+function sceneNameForIndex(i){
+  return `Scene ${i+1}`;
+}
+
+function ensureDefaultScene(){
+  if (scenes.length) return;
+  const s = {
+    id: uid('scene'),
+    name: sceneNameForIndex(0),
+    color: nextSceneColor(),
+    elements: [],
+    view: { scale: 1, offsetX: 0, offsetY: 0 }
+  };
+  scenes = [s];
+  activeSceneId = s.id;
+}
+
+function getActiveScene(){
+  return scenes.find(s => s.id === activeSceneId) || scenes[0] || null;
+}
+
+function syncSceneUI(){
+  const s = getActiveScene();
+  if (!s) return;
+  if (pScene) pScene.value = s.sceneNumber || '';
+  if (scenePalette){
+    scenePalette.querySelectorAll('.swatch').forEach(btn=>{
+      const c = btn.getAttribute('data-color') || '';
+      btn.classList.toggle('selected', (s.color || '') === c);
+    });
+  }
+}
+
+function updateSceneNumber(val){
+  const s = getActiveScene();
+  if (!s) return;
+  s.sceneNumber = val;
+
+  // keep all cameras in this scene synced to the scene number
+  state.elements.forEach(e=>{
+    if (e.type === 'camera'){
+      e.sceneNumber = val;
+    }
+  });
+
+  renderSceneMenu();
+  syncPropsUI(true);
+  saveToStorage();
+}
+
+function updateSceneColor(color){
+  const s = getActiveScene();
+  if (!s) return;
+  s.color = color;
+  renderSceneMenu();
+  syncSceneUI();
+  saveToStorage();
+  draw();
+}
+
+function saveActiveSceneSnapshot(){
+  const s = getActiveScene();
+  if (!s) return;
+  // deep clone elements to avoid cross-scene mutation
+  s.elements = JSON.parse(JSON.stringify(state.elements));
+  s.view = { scale: view.scale, offsetX: view.offsetX, offsetY: view.offsetY };
+}
+
+function loadSceneIntoState(sceneId){
+  const target = scenes.find(s => s.id === sceneId);
+  if (!target) return;
+  // save current scene first
+  saveActiveSceneSnapshot();
+
+  activeSceneId = target.id;
+  renderSceneMenu();
+  state.selectedId = null;
+  state.elements = JSON.parse(JSON.stringify(target.elements || []));
+
+  // sync camera scene numbers to this scene
+  const sceneNum = target.sceneNumber || '';
+  state.elements.forEach(e=>{ if (e.type === 'camera') e.sceneNumber = sceneNum; });
+
+  const v = target.view || { scale: 1, offsetX: 0, offsetY: 0 };
+  view.scale = v.scale ?? 1;
+  view.offsetX = v.offsetX ?? 0;
+  view.offsetY = v.offsetY ?? 0;
+
+  // reset undo/redo per scene switch
+  history = [];
+  redo = [];
+
+  saveToStorage();
+  syncPropsUI();
+  syncButtons();
+  draw();
+}
+
+function createNewScene(){
+  saveActiveSceneSnapshot();
+
+  const s = {
+    id: uid('scene'),
+    name: sceneNameForIndex(scenes.length),
+    sceneNumber: '',
+    color: nextSceneColor(),
+    elements: [],
+    view: { scale: 1, offsetX: 0, offsetY: 0 }
+  };
+  scenes.push(s);
+  loadSceneIntoState(s.id);
+}
+
+function deleteActiveScene(){
+  if (scenes.length <= 1) return; // keep at least one scene
+  const idx = scenes.findIndex(s => s.id === activeSceneId);
+  if (idx === -1) return;
+  // remove active
+  scenes.splice(idx, 1);
+  // pick next scene
+  const next = scenes[Math.min(idx, scenes.length-1)];
+  activeSceneId = next.id;
+  // load next into state
+  state.selectedId = null;
+  state.elements = JSON.parse(JSON.stringify(next.elements || []));
+  const v = next.view || { scale: 1, offsetX: 0, offsetY: 0 };
+  view.scale = v.scale ?? 1;
+  view.offsetX = v.offsetX ?? 0;
+  view.offsetY = v.offsetY ?? 0;
+  history = [];
+  redo = [];
+  renderSceneMenu();
+  saveToStorage();
+  syncPropsUI();
+  syncButtons();
+  draw();
+}
+
+function renderSceneMenu(){
+  if (!sceneMenu) return;
+  sceneMenu.innerHTML = '';
+  scenes.forEach((s, idx) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'preset-item' + (s.id === activeSceneId ? ' active' : '');
+    btn.dataset.sceneId = s.id;
+    btn.innerHTML = `<span class="dot" style="--dot:${s.color || '#6b7280'}"></span>${(s.sceneNumber && String(s.sceneNumber).trim()) ? ('Scene ' + String(s.sceneNumber).trim()) : (s.name || sceneNameForIndex(idx))}`;
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      loadSceneIntoState(s.id);
+      // keep menu open only while hovering
+    });
+    sceneMenu.appendChild(btn);
+  });
+}
+
 function syncButtons(){
   btnUndo.disabled = history.length === 0;
   btnRedo.disabled = redo.length === 0;
@@ -1411,12 +1711,19 @@ function syncButtons(){
 
 function syncPropsUI(skipFocusPreserve=false){
   const el = getSelected();
+
+  // Scene properties when nothing selected
   if (!el){
-    propsEmpty.classList.remove('hidden');
     propsForm.classList.add('hidden');
-    cameraFields.classList.add('hidden');
+    propsEmpty.classList.add('hidden');
+    if (sceneForm) sceneForm.classList.remove('hidden');
+    syncSceneUI();
     return;
   }
+
+  // element selected
+  if (sceneForm) sceneForm.classList.add('hidden');
+
 
   propsEmpty.classList.add('hidden');
 
@@ -1537,11 +1844,16 @@ propsForm.classList.remove('hidden');
     P.nickname.value = el.nickname ?? '';
     P.techNotes.value = el.techNotes ?? '';
     P.productionNotes.value = el.productionNotes ?? '';
-    P.sceneNumber.value = el.sceneNumber ?? '';
+    const active = getActiveScene();
+    const sceneNum = (active && active.sceneNumber) ? active.sceneNumber : '';
+    // keep camera Scene # tied to current scene
+    P.sceneNumber.value = sceneNum;
+    P.sceneNumber.readOnly = true;
     P.setupNumber.value = el.setupNumber ?? '';
     P.cameraSupport.value = el.cameraSupport ?? '';
   } else {
     cameraFields.classList.add('hidden');
+    if (P.sceneNumber) P.sceneNumber.readOnly = false;
   }
 }
 
@@ -1606,15 +1918,25 @@ if (cameraPalette){
 // ---------- Init ----------
 function init(){
   const saved = loadFromStorage();
-  state.elements = normalizeElements(saved ?? deepClone(INITIAL_ELEMENTS));
+  if (saved && Array.isArray(saved.scenes)){
+    // scenes loaded in loadFromStorage
+  } else if (saved && saved.scenes){
+    // noop
+  }
+  ensureDefaultScene();
+
+  const active = getActiveScene();
+  state.elements = normalizeElements(deepClone(active.elements || []));
   ensureLabelOffsets();
   state.selectedId = null;
   history = [];
   redo = [];
-  view.scale = 1;
-  view.offsetX = 0;
-  view.offsetY = 0;
+  const v = active.view || { scale: 1, offsetX: 0, offsetY: 0 };
+  view.scale = v.scale ?? 1;
+  view.offsetX = v.offsetX ?? 0;
+  view.offsetY = v.offsetY ?? 0;
 
+  renderSceneMenu();
   syncPropsUI();
   syncButtons();
   draw();
@@ -1661,3 +1983,11 @@ function exportToExcel(){
   const blob = new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8;" });
   downloadBlob(blob, `shot-designer-shots-${new Date().toISOString().slice(0,10)}.csv`);
 }
+
+document.addEventListener('click', (e)=>{
+  const close = e.target && e.target.getAttribute && e.target.getAttribute('data-close');
+  if (close){
+    const modal = e.target.closest('.sp-modal');
+    closeModal(modal);
+  }
+});
