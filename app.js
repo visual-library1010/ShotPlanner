@@ -6,7 +6,7 @@ function getNextSetupNumber(){
   return Math.max(...nums)+1;
 }
 
-const APP_VERSION = "v146";
+const APP_VERSION = "v148";
 
 function getCanvasCenterWorld(){
   const rect = canvas.getBoundingClientRect();
@@ -73,7 +73,7 @@ function createTrackTargetFor(sourceEl, overrides = null){
 
   state.elements.push(target);
   sourceEl.trackToId = target.id;
-  sourceEl.trackMode = sourceEl.trackMode || 'to'; // 'to' | 'from' | 'between'
+  sourceEl.trackMode = sourceEl.trackMode || 'to'; // 'to' | 'from' | 'between' | 'circle'
 
   saveToStorage();
   state.selectedId = target.id;
@@ -761,16 +761,34 @@ function drawTrackArrows(){
     const ax = a.x * dpr, ay = a.y * dpr;
     const bx = b.x * dpr, by = b.y * dpr;
 
-    
     const mode = src.trackMode || 'to';
 
-// Line + arrowheads (with gaps from both camera icons)
     const dx = bx - ax;
     const dy = by - ay;
     const len = Math.hypot(dx, dy) || 1;
     const ux = dx / len;
     const uy = dy / len;
 
+    if (mode === 'circle'){
+      const cx = (ax + bx) / 2;
+      const cy = (ay + by) / 2;
+      const r = Math.max(len / 2, 1);
+      const angleA = Math.atan2(ay - cy, ax - cx);
+      const angleB = Math.atan2(by - cy, bx - cx);
+      const gapPx = Math.min(24 * dpr, r * 0.32);
+      const gapAngle = Math.min(0.5, gapPx / r);
+
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, angleA + gapAngle, angleB - gapAngle, false);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, angleB + gapAngle, angleA - gapAngle, false);
+      ctx.stroke();
+      continue;
+    }
+
+    // Line + arrowheads (with gaps from both camera icons)
     const headLen = 12 * dpr;
     const headAng = Math.PI / 7;
 
@@ -792,7 +810,6 @@ function drawTrackArrows(){
     ctx.lineTo(ex, ey);
     ctx.stroke();
 
-    // Arrowhead at end (toward target)
     if (needsHeadAtEnd){
       const angleEnd = Math.atan2(ey - sy, ex - sx);
       ctx.beginPath();
@@ -803,9 +820,8 @@ function drawTrackArrows(){
       ctx.fill();
     }
 
-    // Arrowhead at start (toward source)
     if (needsHeadAtStart){
-      const angleStart = Math.atan2(sy - ey, sx - ex); // pointing from line toward start
+      const angleStart = Math.atan2(sy - ey, sx - ex);
       ctx.beginPath();
       ctx.moveTo(sx, sy);
       ctx.lineTo(sx - headLen * Math.cos(angleStart - headAng), sy - headLen * Math.sin(angleStart - headAng));
@@ -813,9 +829,7 @@ function drawTrackArrows(){
       ctx.closePath();
       ctx.fill();
     }
-}
-
-
+  }
 
   ctx.restore();
 }
