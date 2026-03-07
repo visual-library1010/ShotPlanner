@@ -188,10 +188,13 @@ body{
 .hud{
   position:absolute; left:14px; bottom:14px;
   display:flex; gap:10px; align-items:center;
-  pointer-events:none;
+  pointer-events:auto;
+}
+.hud .pill{
+  pointer-events:auto;
 }
 .pill{
-  pointer-events:none;
+  pointer-events:auto;
   font-size:12px;
   color: rgba(0,0,0,0.55);
   background: rgba(255,255,255,0.85);

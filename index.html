@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Shot Planner (Vanilla) v113</title>
+  <title>Shot Planner (Vanilla) v147</title>
   <link rel="stylesheet" href="./style.css" />
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet" />
 </head>
@@ -82,7 +82,11 @@
     <section class="canvas-wrap">
       <canvas id="scene" width="1200" height="800"></canvas>
       <div class="hud">
-        <div id="hud-zoom" class="pill">100%</div>
+        <div class="pill" style="display:flex; align-items:center; gap:8px;">
+          <button id="btn-zoom-out" type="button" aria-label="Zoom out" style="all:unset; cursor:pointer; font-weight:800; font-size:16px; line-height:1;">−</button>
+          <div id="hud-zoom">100%</div>
+          <button id="btn-zoom-in" type="button" aria-label="Zoom in" style="all:unset; cursor:pointer; font-weight:800; font-size:16px; line-height:1;">+</button>
+        </div>
         
       </div>
     </section>
@@ -197,14 +201,14 @@
   <div class="row">
     <label>Lens</label>
     <select id="p-lens">
-      <option value="">(none)</option>
-      <option>18mm</option>
-      <option>24mm</option>
-      <option>35mm</option>
-      <option>50mm</option>
-      <option>75mm</option>
-      <option>100mm</option>
-    </select>
+                <option value="25mm">25mm</option>
+                <option value="35mm">35mm</option>
+                <option value="40mm">40mm</option>
+                <option value="50mm">50mm</option>
+                <option value="65mm">65mm</option>
+                <option value="85mm">85mm</option>
+                <option value="105mm">105mm</option>
+</select>
   </div>
 </div>
 <div class="grid2" id="row-scene-setup">

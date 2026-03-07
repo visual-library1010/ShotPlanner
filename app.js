@@ -1,8 +1,27 @@
 
+function getNextSetupNumber(){
+  const cams = state.elements.filter(e=>e.type==='camera' && !e.isTrackTarget);
+  if(cams.length===0) return 1;
+  const nums = cams.map(c=>parseInt(c.setupNumber)||0);
+  return Math.max(...nums)+1;
+}
+
+const APP_VERSION = "v146";
+
+function getCanvasCenterWorld(){
+  const rect = canvas.getBoundingClientRect();
+  const sx = rect.width/2;
+  const sy = rect.height/2;
+  return screenToWorld(sx, sy);
+}
 
 
 
-function createTrackTargetFor(sourceEl){
+
+function createTrackTargetFor(sourceEl, overrides = null){
+  const hasOverridePos = !!(overrides && typeof overrides.x === 'number' && typeof overrides.y === 'number');
+  const targetX = hasOverridePos ? overrides.x : (sourceEl.x + (sourceEl.type === 'character' ? 120 : 80));
+  const targetY = hasOverridePos ? overrides.y : sourceEl.y;
   // Creates a linked track target for cameras or characters.
   // Cameras keep the existing trackTarget element type; characters get a real 'character' element
   // so dragging/rotating behaves exactly like a normal character.
@@ -23,8 +42,8 @@ function createTrackTargetFor(sourceEl){
       parentId: sourceEl.id,
       noExport: true,
       color: sourceEl.color || '#999',
-      x: sourceEl.x + 120,
-      y: sourceEl.y,
+      x: targetX,
+      y: targetY,
       rotation: sourceEl.rotation || 0,
       scaleX: sourceEl.scaleX ?? 1,
       scaleY: sourceEl.scaleY ?? 1,
@@ -41,8 +60,8 @@ function createTrackTargetFor(sourceEl){
       parentId: sourceEl.id,
       parentId: sourceEl.id,
       color: sourceEl.color || '#111',
-      x: sourceEl.x + 80,
-      y: sourceEl.y,
+      x: targetX,
+      y: targetY,
       rotation: sourceEl.rotation || 0,
       scaleX: sourceEl.scaleX ?? 1,
       scaleY: sourceEl.scaleY ?? 1,
@@ -69,6 +88,8 @@ const canvas = document.getElementById('scene');
 const ctx = canvas.getContext('2d');
 
 const hudZoom = document.getElementById('hud-zoom');
+const btnZoomOut = document.getElementById('btn-zoom-out');
+const btnZoomIn = document.getElementById('btn-zoom-in');
 
 const btnScene = document.getElementById('btn-scene');
 const sceneMenu = document.getElementById('scene-menu');
@@ -158,7 +179,7 @@ function getDefaultLabelOffset(el){
 
 function ensureLabelOffsets(){
   for (const el of state.elements){
-    if (el.type === 'trackTarget' || el.isTrackTarget) continue;
+    if (el.type === 'trackTarget') continue;
     if (typeof el.labelDx !== 'number') el.labelDx = 0;
     if (typeof el.labelDy !== 'number'){
       const d = getDefaultLabelOffset(el);
@@ -183,6 +204,24 @@ let view = {
   offsetX: 0,
   offsetY: 0,
 };
+
+let lastCanvasPointer = {
+  active: false,
+  sx: 0,
+  sy: 0,
+};
+
+function getSpawnOverridesFromCursor(){
+  if (!lastCanvasPointer.active) return null;
+  const w = screenToWorld(lastCanvasPointer.sx, lastCanvasPointer.sy);
+  return { x: w.x, y: w.y };
+}
+
+function getTrackTargetOverridesFromCursor(){
+  if (lastCanvasPointer.sx === undefined) return null;
+  const w = screenToWorld(lastCanvasPointer.sx, lastCanvasPointer.sy);
+  return { x: w.x, y: w.y };
+}
 
 // scenes (one scene per board)
 let scenes = []; // {id, name, color, elements, view}
@@ -232,7 +271,7 @@ const INITIAL_ELEMENTS = [
     techNotes: '',
     productionNotes: '',
     sceneNumber: '',
-    setupNumber: '1',
+    setupNumber: getNextSetupNumber(),
     cameraSupport: 'Tripod',
   },
 ];
@@ -525,7 +564,7 @@ function addElement(type, overrides = null){
     el.productionNotes = '';
     el.sceneNumber = '';
     // Setup defaults to 1
-    el.setupNumber = '1';
+    el.setupNumber = String(getNextSetupNumber());
     el.cameraSupport = 'Tripod';
   } else if (type === 'wall'){
     el.color = '#f59e0b';
@@ -781,6 +820,43 @@ function drawTrackArrows(){
   ctx.restore();
 }
 
+
+const ZOOM_STEPS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4];
+
+function setZoomAtScreenPoint(nextScale, sx, sy){
+  const before = screenToWorld(sx, sy);
+  view.scale = clamp(nextScale, ZOOM_STEPS[0], ZOOM_STEPS[ZOOM_STEPS.length - 1]);
+  const after = screenToWorld(sx, sy);
+  view.offsetX += (after.x - before.x) * view.scale;
+  view.offsetY += (after.y - before.y) * view.scale;
+  saveToStorage();
+  draw();
+}
+
+function zoomStep(direction){
+  const current = view.scale;
+  let idx = 0;
+  let best = Infinity;
+
+  for (let i = 0; i < ZOOM_STEPS.length; i++){
+    const d = Math.abs(ZOOM_STEPS[i] - current);
+    if (d < best){
+      best = d;
+      idx = i;
+    }
+  }
+
+  if (direction > 0){
+    if (ZOOM_STEPS[idx] <= current + 1e-9 && idx < ZOOM_STEPS.length - 1) idx += 1;
+  } else {
+    if (ZOOM_STEPS[idx] >= current - 1e-9 && idx > 0) idx -= 1;
+  }
+
+  const sx = canvas.clientWidth / 2;
+  const sy = canvas.clientHeight / 2;
+  setZoomAtScreenPoint(ZOOM_STEPS[idx], sx, sy);
+}
+
 function draw(){
   resizeCanvasToDisplaySize();
   const dpr = window.devicePixelRatio || 1;
@@ -799,7 +875,10 @@ function draw(){
   }
 
   const sel = getSelected();
-  if (sel) drawRotationGizmo(sel);
+  if (sel) {
+    drawRotationGizmo(sel);
+    if (sel.type === 'wall') drawWallResizeGizmo(sel);
+  }
 
   hudZoom.textContent = `${Math.round(view.scale*100)}%`;
 }
@@ -1004,6 +1083,86 @@ function drawSelection(el){
 }
 
 
+
+function snapWallRotation(angleDeg){
+  const SNAP_STEP = 45;
+  const SNAP_THRESHOLD = 10;
+  const snapped = Math.round(angleDeg / SNAP_STEP) * SNAP_STEP;
+  return Math.abs(angleDeg - snapped) <= SNAP_THRESHOLD ? snapped : angleDeg;
+}
+
+
+function wallAxis(el){
+  const a = rad(el.rotation || 0);
+  return { x: Math.cos(a), y: Math.sin(a) };
+}
+
+function wallResizeHandleWorld(el){
+  const axis = wallAxis(el);
+  const half = ((el.width || 180) * (el.scaleX || 1)) / 2;
+  return {
+    x: el.x + axis.x * half,
+    y: el.y + axis.y * half
+  };
+}
+
+function wallAnchorWorld(el){
+  const axis = wallAxis(el);
+  const half = ((el.width || 180) * (el.scaleX || 1)) / 2;
+  return {
+    x: el.x - axis.x * half,
+    y: el.y - axis.y * half
+  };
+}
+
+function hitWallResizeHandle(wx, wy, el){
+  if (!el || el.type !== 'wall') return false;
+  const h = wallResizeHandleWorld(el);
+  const dx = wx - h.x;
+  const dy = wy - h.y;
+  const r = 16 / view.scale;
+  return (dx*dx + dy*dy) <= r*r;
+}
+
+function drawWallResizeGizmo(el){
+  if (!el || el.type !== 'wall') return;
+  const dpr = window.devicePixelRatio || 1;
+  const anchor = worldToScreen(el.x, el.y);
+  const hW = wallResizeHandleWorld(el);
+  const handle = worldToScreen(hW.x, hW.y);
+
+  ctx.save();
+  ctx.setTransform(1,0,0,1,0,0);
+
+  const cx = anchor.x * dpr;
+  const cy = anchor.y * dpr;
+  const hx = handle.x * dpr;
+  const hy = handle.y * dpr;
+
+  ctx.strokeStyle = 'rgba(245,158,11,0.55)';
+  ctx.lineWidth = 2 * dpr;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy);
+  ctx.lineTo(hx, hy);
+  ctx.stroke();
+
+  ctx.shadowColor = 'rgba(245,158,11,0.35)';
+  ctx.shadowBlur = 12 * dpr;
+  ctx.fillStyle = '#f59e0b';
+  ctx.beginPath();
+  ctx.arc(hx, hy, 7 * dpr, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+  ctx.lineWidth = 2 * dpr;
+  ctx.beginPath();
+  ctx.arc(hx, hy, 7 * dpr, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
 function rotationHandleWorld(el){
   // distance from center based on element size
   const base = Math.max(el.width||60, el.height||60) * Math.max(el.scaleX||1, el.scaleY||1);
@@ -1081,7 +1240,7 @@ function hitTest(worldX, worldY){
 
 function labelBoundsScreen(el){
   if (!el) return null;
-  if (el.type === 'trackTarget' || el.isTrackTarget) return null;
+  if (el.type === 'trackTarget') return null;
   const text = getElementLabelText(el);
   if (!text) return null;
 
@@ -1143,7 +1302,7 @@ function pointInElement(px, py, el){
 // ---------- Interaction ----------
 let drag = {
   active: false,
-  mode: 'move', // move|pan|rotate
+  mode: 'move', // move|pan|rotate|resize-wall
   startWorld: {x:0,y:0},
   startEl: null,
   startOffset: {x:0,y:0},
@@ -1172,6 +1331,15 @@ canvas.addEventListener('mousedown', (e)=>{
 
 // If clicking the rotation handle of the currently selected element, start rotating immediately.
 const currentSel = getSelected();
+if (currentSel && currentSel.type === 'wall' && hitWallResizeHandle(w.x, w.y, currentSel)){
+  drag.active = true;
+  drag.mode = 'resize-wall';
+  drag.startEl = deepClone(currentSel);
+  drag.startWorld = w;
+  pushHistory();
+  canvas.style.cursor = 'grabbing';
+  return;
+}
 if (currentSel && hitRotationHandle(w.x, w.y, currentSel)){
   drag.active = true;
   drag.mode = 'rotate';
@@ -1203,6 +1371,16 @@ if (currentSel && hitRotationHandle(w.x, w.y, currentSel)){
 
 setSelected(hit.id);
 
+if (hit.type === 'wall' && hitWallResizeHandle(w.x, w.y, hit)){
+  drag.active = true;
+  drag.mode = 'resize-wall';
+  drag.startEl = deepClone(hit);
+  drag.startWorld = w;
+  pushHistory();
+  canvas.style.cursor = 'grabbing';
+  return;
+}
+
 // rotation gizmo: click/drag the handle to rotate
 if (state.selectedId && hitRotationHandle(w.x, w.y, hit)){
   drag.active = true;
@@ -1225,15 +1403,21 @@ drag.mode = 'move';
 });
 
 canvas.addEventListener('mousemove', (e)=>{
+  const rect = canvas.getBoundingClientRect();
+  const sx = e.clientX - rect.left;
+  const sy = e.clientY - rect.top;
+  lastCanvasPointer.active = true;
+  lastCanvasPointer.sx = sx;
+  lastCanvasPointer.sy = sy;
+
   // Hover cursor hints
   if (!drag.active){
-    const rect = canvas.getBoundingClientRect();
-    const sx = e.clientX - rect.left;
-    const sy = e.clientY - rect.top;
     const w = screenToWorld(sx, sy);
 
     const sel = getSelected();
-    if (sel && hitRotationHandle(w.x, w.y, sel)){
+    if (sel && sel.type === 'wall' && hitWallResizeHandle(w.x, w.y, sel)){
+      canvas.style.cursor = 'ew-resize';
+    } else if (sel && hitRotationHandle(w.x, w.y, sel)){
       canvas.style.cursor = 'grab';
     } else if (hitTestLabel(sx, sy)){
       canvas.style.cursor = 'pointer';
@@ -1242,10 +1426,6 @@ canvas.addEventListener('mousemove', (e)=>{
     }
     return;
   }
-
-  const rect = canvas.getBoundingClientRect();
-  const sx = e.clientX - rect.left;
-  const sy = e.clientY - rect.top;
 
   // Pan uses screen space deltas
   if (drag.mode === 'pan'){
@@ -1283,8 +1463,32 @@ canvas.addEventListener('mousemove', (e)=>{
 
     // normalize to [-180, 180]
     next = ((next + 180) % 360) - 180;
+    if (sel.type === 'wall'){
+      next = snapWallRotation(next);
+    }
 
     sel.rotation = next;
+
+    const idx = state.elements.findIndex(x => x.id === sel.id);
+    if (idx >= 0) state.elements[idx] = sel;
+
+    saveToStorage();
+    syncPropsUI(true);
+    draw();
+    return;
+  }
+
+  if (drag.mode === 'resize-wall'){
+    const axis = wallAxis(drag.startEl);
+    const anchor = wallAnchorWorld(drag.startEl);
+    const px = w.x - anchor.x;
+    const py = w.y - anchor.y;
+    const projected = px * axis.x + py * axis.y;
+    const newWidth = Math.max(40, projected);
+
+    sel.width = newWidth;
+    sel.x = anchor.x + axis.x * (newWidth / 2);
+    sel.y = anchor.y + axis.y * (newWidth / 2);
 
     const idx = state.elements.findIndex(x => x.id === sel.id);
     if (idx >= 0) state.elements[idx] = sel;
@@ -1309,6 +1513,22 @@ canvas.addEventListener('mousemove', (e)=>{
   draw();
 });
 
+
+window.addEventListener('mousemove', (e)=>{
+  const rect = canvas.getBoundingClientRect();
+  const within = e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom;
+  if (!within){
+    // keep last canvas pointer
+    return;
+  }
+  lastCanvasPointer.active = true;
+  lastCanvasPointer.sx = e.clientX - rect.left;
+  lastCanvasPointer.sy = e.clientY - rect.top;
+});
+
+canvas.addEventListener('mouseleave', ()=>{
+  lastCanvasPointer.active = false;
+});
 
 window.addEventListener('mouseup', ()=>{
   if (!drag.active) return;
@@ -1354,6 +1574,25 @@ window.addEventListener('keydown', (e)=>{
   } else if (mod && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))){
     e.preventDefault();
     redoDo();
+  } else if (!isTyping && !mod && e.key.toLowerCase() === 'c'){
+    e.preventDefault();
+    addElement('camera', getSpawnOverridesFromCursor());
+  } else if (!isTyping && !mod && e.key.toLowerCase() === 'p'){
+    e.preventDefault();
+    addElement('character', getSpawnOverridesFromCursor());
+  } else if (!isTyping && !mod && e.key.toLowerCase() === 't'){
+    const sel = getSelected();
+    if (sel && (sel.type === 'camera' || sel.type === 'character')){
+      e.preventDefault();
+      {
+      let pos = getTrackTargetOverridesFromCursor();
+      if (!pos){
+        const c = getCanvasCenterWorld();
+        pos = {x:c.x, y:c.y};
+      }
+      createTrackTargetFor(sel, pos);
+    }
+    }
   } else if (!isTyping && (e.key === 'Delete' || e.key === 'Backspace')){
     if (state.selectedId){
       e.preventDefault();
@@ -1364,6 +1603,22 @@ window.addEventListener('keydown', (e)=>{
 window.addEventListener('keyup', (e)=>{
   if (e.code === 'Space') keys.Space = false;
 });
+
+
+if (btnZoomOut){
+  btnZoomOut.onclick = (e)=>{
+    e.preventDefault();
+    e.stopPropagation();
+    zoomStep(-1);
+  };
+}
+if (btnZoomIn){
+  btnZoomIn.onclick = (e)=>{
+    e.preventDefault();
+    e.stopPropagation();
+    zoomStep(1);
+  };
+}
 
 // ---------- UI wiring ----------
 document.querySelectorAll('[data-add]').forEach(btn=>{
@@ -1708,7 +1963,6 @@ function syncButtons(){
   btnRedo.disabled = redo.length === 0;
   btnDelete.disabled = state.selectedId ? false : (state.elements.length === 0);
 }
-
 function syncPropsUI(skipFocusPreserve=false){
   const el = getSelected();
 
@@ -1723,7 +1977,6 @@ function syncPropsUI(skipFocusPreserve=false){
 
   // element selected
   if (sceneForm) sceneForm.classList.add('hidden');
-
 
   propsEmpty.classList.add('hidden');
 
@@ -1744,8 +1997,8 @@ function syncPropsUI(skipFocusPreserve=false){
 
     if (rowTrackTo) rowTrackTo.classList.add('hidden');
     if (rowTrackMode) rowTrackMode.classList.remove('hidden');
-    // Allow recoloring the track-to camera icon
     if (rowCameraColor) rowCameraColor.classList.remove('hidden');
+
     const owner = getColorOwner(el);
     syncPaletteSelection(owner?.color);
 
@@ -1755,16 +2008,17 @@ function syncPropsUI(skipFocusPreserve=false){
     return;
   }
 
-propsForm.classList.remove('hidden');
+  propsForm.classList.remove('hidden');
 
   const isCamera = el.type === 'camera';
   const isCharacter = el.type === 'character';
+  const isWall = el.type === 'wall';
 
-  // Visibility + labels
   const rowCharName = document.getElementById('row-character-name');
   const rowCamIdShot = document.getElementById('row-camera-id-shot');
   const rowShotTypeLens = document.getElementById('row-shottype-lens');
   const rowSceneSetup = document.getElementById('row-scene-setup');
+
   // Default: show everything, then specialize
   const allRows = propsForm.querySelectorAll('.row, .grid2, #camera-fields');
   allRows.forEach(r=>r.classList.remove('hidden'));
@@ -1789,6 +2043,19 @@ propsForm.classList.remove('hidden');
     else rowShot.classList.add('hidden');
   }
 
+  if (isWall){
+    if (rowCamIdShot) rowCamIdShot.classList.add('hidden');
+    if (rowShotTypeLens) rowShotTypeLens.classList.add('hidden');
+    if (rowSceneSetup) rowSceneSetup.classList.add('hidden');
+    cameraFields.classList.add('hidden');
+    if (rowCharName) rowCharName.classList.add('hidden');
+
+    [P.id, P.type].forEach(input=>{
+      const row = input?.closest('.row') || input?.closest('.grid2');
+      if (row) row.classList.add('hidden');
+    });
+  }
+
   if (isCharacter){
     // Character panel: only Character Name, Rotation, Primary Color, Size
     if (rowCamIdShot) rowCamIdShot.classList.add('hidden');
@@ -1797,18 +2064,14 @@ propsForm.classList.remove('hidden');
     cameraFields.classList.add('hidden');
     if (rowCharName) rowCharName.classList.remove('hidden');
 
-    // Hide rows we don't want
     [P.id, P.type, P.x, P.y, P.sx, P.sy].forEach(input=>{
       const row = input?.closest('.row') || input?.closest('.grid2');
       if(row) row.classList.add('hidden');
     });
 
-    // Hide the X/Y grid2 (it isn't referenced above once hidden inputs are hidden, but keep safe)
     const xyGrid = P.x?.closest('.grid2');
     if (xyGrid) xyGrid.classList.add('hidden');
 
-    // Ensure Size is visible
-    // Fill character name input from label
     if (P.characterName) P.characterName.value = el.label ?? '';
   }
 
@@ -1820,25 +2083,23 @@ propsForm.classList.remove('hidden');
     if (rowSceneSetup) rowSceneSetup.classList.remove('hidden');
     cameraFields.classList.remove('hidden');
 
-    // Hide technical fields and Size
     [P.id, P.type, P.x, P.y, P.sx, P.sy].forEach(input=>{
       const row = input?.closest('.row') || input?.closest('.grid2');
       if(row) row.classList.add('hidden');
     });
+
     const xyGrid = P.x?.closest('.grid2');
     if (xyGrid) xyGrid.classList.add('hidden');
-    // Ensure camera label says Camera ID
+
     const camIdLabel = document.querySelector('#row-camera-id-shot .row label');
     if (camIdLabel) camIdLabel.textContent = 'Camera ID';
   }
 
   if (isCamera){
-
-    // Populate Camera ID input from saved element label
     if (P.label) P.label.value = el.label ?? '';
 
     cameraFields.classList.remove('hidden');
-        P.shotNumber.value = el.shotNumber ?? '';
+    P.shotNumber.value = el.shotNumber ?? '';
     P.shotType.value = el.shotType ?? '';
     P.lens.value = el.lens ?? '';
     P.nickname.value = el.nickname ?? '';
@@ -1846,7 +2107,6 @@ propsForm.classList.remove('hidden');
     P.productionNotes.value = el.productionNotes ?? '';
     const active = getActiveScene();
     const sceneNum = (active && active.sceneNumber) ? active.sceneNumber : '';
-    // keep camera Scene # tied to current scene
     P.sceneNumber.value = sceneNum;
     P.sceneNumber.readOnly = true;
     P.setupNumber.value = el.setupNumber ?? '';
@@ -1968,7 +2228,7 @@ function exportToExcel(){
     const row = [
       cam.sceneNumber || "",
       cam.setupNumber || "",
-      cam.label || "",
+      cam.label ? `CAMERA ${cam.label.replace(/^CAMERA\s+/,"")}` : "",
       cam.shotNumber || "",
       cam.shotType || "", // FRAME = Shot Type
       cam.nickname || "",
