@@ -6,7 +6,7 @@ function getNextSetupNumber(){
   return Math.max(...nums)+1;
 }
 
-const APP_VERSION = "v158";
+const APP_VERSION = "v159";
 
 function getCanvasCenterWorld(){
   const rect = canvas.getBoundingClientRect();
@@ -2290,9 +2290,11 @@ function exportToExcel(){
 
   const rows = [headers.map(csvEscape).join(",")];
 
+  const activeScene = getActiveScene();
+
   cameras.forEach(cam => {
     const row = [
-      cam.sceneNumber || "",
+      activeScene?.sceneNumber || cam.sceneNumber || "",
       cam.setupNumber || "",
       cam.label ? `CAMERA ${cam.label.replace(/^CAMERA\s+/,"")}` : "",
       cam.shotNumber || "",
