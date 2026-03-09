@@ -6,7 +6,7 @@ function getNextSetupNumber(){
   return Math.max(...nums)+1;
 }
 
-const APP_VERSION = "v156";
+const APP_VERSION = "v158";
 
 function getCanvasCenterWorld(){
   const rect = canvas.getBoundingClientRect();
@@ -549,7 +549,7 @@ function addElement(type, overrides = null){
     el.label = '';
     el.width = 40; el.height = 40;
   } else if (type === 'camera'){
-    el.color = '#1c1917';
+    el.color = '#3b82f6';
     // Camera ID defaults to "A" but remains editable in the field.
     el.label = 'A';
     el.width = 52; el.height = 52;
@@ -995,7 +995,7 @@ ctx.fillStyle = (inheritedColor || el.color) || '#999';
     const s = size/2;
 
     // Rounded square body + equilateral triangle "hood" (matches requested shape)
-    ctx.fillStyle = (inheritedColor || el.color) || '#22c55e';
+    ctx.fillStyle = (inheritedColor || el.color) || '#3b82f6';
     ctx.strokeStyle = 'rgba(0,0,0,0.18)';
     ctx.lineWidth = 2 * dpr;
 
