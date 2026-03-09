@@ -6,7 +6,7 @@ function getNextSetupNumber(){
   return Math.max(...nums)+1;
 }
 
-const APP_VERSION = "v159";
+const APP_VERSION = "v162";
 
 function getCanvasCenterWorld(){
   const rect = canvas.getBoundingClientRect();
@@ -883,6 +883,81 @@ function animateWheelZoom(){
   wheelZoomRaf = requestAnimationFrame(animateWheelZoom);
 }
 
+
+function getElementWorldBounds(el){
+  const w = (el.width || 60) * (el.scaleX || 1);
+  const h = (el.height || 60) * (el.scaleY || 1);
+  const a = rad(el.rotation || 0);
+  const cosA = Math.cos(a);
+  const sinA = Math.sin(a);
+
+  const corners = [
+    { x: -w/2, y: -h/2 },
+    { x:  w/2, y: -h/2 },
+    { x:  w/2, y:  h/2 },
+    { x: -w/2, y:  h/2 },
+  ].map(pt => ({
+    x: el.x + pt.x * cosA - pt.y * sinA,
+    y: el.y + pt.x * sinA + pt.y * cosA
+  }));
+
+  const xs = corners.map(p => p.x);
+  const ys = corners.map(p => p.y);
+  return {
+    minX: Math.min(...xs),
+    maxX: Math.max(...xs),
+    minY: Math.min(...ys),
+    maxY: Math.max(...ys),
+  };
+}
+
+function zoomToExtents(){
+  const items = state.elements.filter(el => el.type !== 'trackTarget' && !el.isTrackTarget);
+  if (!items.length) return;
+
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const el of items){
+    const b = getElementWorldBounds(el);
+    minX = Math.min(minX, b.minX);
+    minY = Math.min(minY, b.minY);
+    maxX = Math.max(maxX, b.maxX);
+    maxY = Math.max(maxY, b.maxY);
+  }
+
+  const rect = canvas.getBoundingClientRect();
+
+  // Safe framing area excludes overlapping UI chrome.
+  const safeLeft = 92;
+  const safeTop = 74;
+  const safeRight = 344;
+  const safeBottom = 36;
+
+  const usableW = Math.max(1, rect.width - safeLeft - safeRight);
+  const usableH = Math.max(1, rect.height - safeTop - safeBottom);
+
+  const width = Math.max(80, maxX - minX);
+  const height = Math.max(80, maxY - minY);
+  const pad = 48;
+
+  const targetScale = clamp(
+    Math.min((usableW - pad * 2) / width, (usableH - pad * 2) / height),
+    ZOOM_STEPS[0],
+    ZOOM_STEPS[ZOOM_STEPS.length - 1]
+  );
+
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
+
+  const viewportCenterX = safeLeft + usableW / 2;
+  const viewportCenterY = safeTop + usableH / 2;
+
+  view.scale = targetScale;
+  view.offsetX = viewportCenterX - cx * targetScale;
+  view.offsetY = viewportCenterY - cy * targetScale;
+  saveToStorage();
+  draw();
+}
+
 function zoomStep(direction){
   const current = view.scale;
   let idx = 0;
@@ -1646,6 +1721,9 @@ window.addEventListener('keydown', (e)=>{
   } else if (!isTyping && !mod && e.key.toLowerCase() === 'l'){
     e.preventDefault();
     addElement('wall', getSpawnOverridesFromCursor());
+  } else if (!isTyping && !mod && e.key.toLowerCase() === 'f'){
+    e.preventDefault();
+    zoomToExtents();
   } else if (!isTyping && !mod && e.key.toLowerCase() === 't'){
     const sel = getSelected();
     if (sel && (sel.type === 'camera' || sel.type === 'character')){
@@ -1786,7 +1864,7 @@ btnRedo.addEventListener('click', redoDo);
 
 btnSave.addEventListener('click', ()=>{
   const blob = new Blob([JSON.stringify({ elements: state.elements }, null, 2)], {type:'application/json'});
-  downloadBlob(blob, `shot-designer-scene-${new Date().toISOString().slice(0,10)}.json`);
+  downloadBlob(blob, `${getExportBaseName()}.json`);
 });
 
 fileLoad.addEventListener('change', async ()=>{
@@ -1853,6 +1931,14 @@ function csvEscape(v){
   const s = String(v ?? '');
   if (/[",\n]/.test(s)) return `"${s.replaceAll('"','""')}"`;
   return s;
+}
+
+
+function getExportBaseName(){
+  const active = (typeof getActiveScene === 'function') ? getActiveScene() : null;
+  let num = active && active.sceneNumber ? String(active.sceneNumber).trim() : '';
+  if(!num) return 'untitled_AOA';
+  return `${num}_AOA`;
 }
 
 function downloadBlob(blob, filename){
@@ -2309,7 +2395,7 @@ function exportToExcel(){
   });
 
   const blob = new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8;" });
-  downloadBlob(blob, `shot-designer-shots-${new Date().toISOString().slice(0,10)}.csv`);
+  downloadBlob(blob, `${getExportBaseName()}.csv`);
 }
 
 document.addEventListener('click', (e)=>{
