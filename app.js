@@ -6,7 +6,7 @@ function getNextSetupNumber(){
   return Math.max(...nums)+1;
 }
 
-const APP_VERSION = "v148";
+const APP_VERSION = "v156";
 
 function getCanvasCenterWorld(){
   const rect = canvas.getBoundingClientRect();
@@ -835,7 +835,10 @@ function drawTrackArrows(){
 }
 
 
-const ZOOM_STEPS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4];
+const ZOOM_STEPS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1, 1.1, 1.2, 1.33, 1.5, 1.66, 1.8, 2, 2.5, 3, 4];
+let wheelZoomTarget = null;
+let wheelZoomAnchor = null;
+let wheelZoomRaf = 0;
 
 function setZoomAtScreenPoint(nextScale, sx, sy){
   const before = screenToWorld(sx, sy);
@@ -845,6 +848,39 @@ function setZoomAtScreenPoint(nextScale, sx, sy){
   view.offsetY += (after.y - before.y) * view.scale;
   saveToStorage();
   draw();
+}
+
+function setZoomAtScreenPointRaw(nextScale, sx, sy){
+  const before = screenToWorld(sx, sy);
+  view.scale = clamp(nextScale, ZOOM_STEPS[0], ZOOM_STEPS[ZOOM_STEPS.length - 1]);
+  const after = screenToWorld(sx, sy);
+  view.offsetX += (after.x - before.x) * view.scale;
+  view.offsetY += (after.y - before.y) * view.scale;
+}
+
+function animateWheelZoom(){
+  if (wheelZoomTarget == null || !wheelZoomAnchor){
+    wheelZoomRaf = 0;
+    return;
+  }
+
+  const current = view.scale;
+  const target = wheelZoomTarget;
+  const next = current + (target - current) * 0.22;
+
+  if (Math.abs(target - current) < 0.001){
+    setZoomAtScreenPointRaw(target, wheelZoomAnchor.sx, wheelZoomAnchor.sy);
+    wheelZoomTarget = null;
+    wheelZoomAnchor = null;
+    wheelZoomRaf = 0;
+    saveToStorage();
+    draw();
+    return;
+  }
+
+  setZoomAtScreenPointRaw(next, wheelZoomAnchor.sx, wheelZoomAnchor.sy);
+  draw();
+  wheelZoomRaf = requestAnimationFrame(animateWheelZoom);
 }
 
 function zoomStep(direction){
@@ -1178,10 +1214,22 @@ function drawWallResizeGizmo(el){
 }
 
 function rotationHandleWorld(el){
-  // distance from center based on element size
-  const base = Math.max(el.width||60, el.height||60) * Math.max(el.scaleX||1, el.scaleY||1);
-  const dist = base * 0.75 + 24; // world units
   const a = rad(el.rotation || 0);
+
+  if (el.type === 'wall'){
+    const axis = wallAxis(el);
+    const half = ((el.width || 180) * (el.scaleX || 1)) / 2;
+    const offset = 36; // constant distance past wall end
+    const dist = half + offset;
+    return {
+      x: el.x + axis.x * dist,
+      y: el.y + axis.y * dist,
+      dist
+    };
+  }
+
+  const base = Math.max(el.width||60, el.height||60) * Math.max(el.scaleX||1, el.scaleY||1);
+  const dist = base * 0.75 + 24;
   return { x: el.x + Math.cos(a)*dist, y: el.y + Math.sin(a)*dist, dist };
 }
 
@@ -1497,7 +1545,7 @@ canvas.addEventListener('mousemove', (e)=>{
     const anchor = wallAnchorWorld(drag.startEl);
     const px = w.x - anchor.x;
     const py = w.y - anchor.y;
-    const projected = px * axis.x + py * axis.y;
+    const projected = (px * axis.x + py * axis.y);
     const newWidth = Math.max(40, projected);
 
     sel.width = newWidth;
@@ -1553,22 +1601,23 @@ window.addEventListener('mouseup', ()=>{
 
 canvas.addEventListener('wheel', (e)=>{
   e.preventDefault();
+
   const rect = canvas.getBoundingClientRect();
   const sx = e.clientX - rect.left;
   const sy = e.clientY - rect.top;
 
-  const before = screenToWorld(sx, sy);
-  const speed = 1.1;
-  const nextScale = e.deltaY < 0 ? view.scale * speed : view.scale / speed;
-  view.scale = clamp(nextScale, 0.1, 6);
+  // Smooth, cursor-anchored continuous zoom for mouse wheel / trackpad.
+  // Using an exponential factor keeps small gestures subtle and large gestures controlled.
+  const intensity = Math.min(Math.abs(e.deltaY), 120);
+  const zoomFactor = Math.exp((-e.deltaY / 120) * 0.12 * (intensity / 120 + 0.35));
+  const baseTarget = wheelZoomTarget == null ? view.scale : wheelZoomTarget;
+  wheelZoomTarget = clamp(baseTarget * zoomFactor, ZOOM_STEPS[0], ZOOM_STEPS[ZOOM_STEPS.length - 1]);
+  wheelZoomAnchor = { sx, sy };
 
-  const after = screenToWorld(sx, sy);
-  // keep point under cursor stable
-  view.offsetX += (after.x - before.x) * view.scale;
-  view.offsetY += (after.y - before.y) * view.scale;
-
-  draw();
-}, {passive:false});
+  if (!wheelZoomRaf){
+    wheelZoomRaf = requestAnimationFrame(animateWheelZoom);
+  }
+}, { passive: false });
 
 const keys = { Space:false };
 window.addEventListener('keydown', (e)=>{
@@ -1594,6 +1643,9 @@ window.addEventListener('keydown', (e)=>{
   } else if (!isTyping && !mod && e.key.toLowerCase() === 'p'){
     e.preventDefault();
     addElement('character', getSpawnOverridesFromCursor());
+  } else if (!isTyping && !mod && e.key.toLowerCase() === 'l'){
+    e.preventDefault();
+    addElement('wall', getSpawnOverridesFromCursor());
   } else if (!isTyping && !mod && e.key.toLowerCase() === 't'){
     const sel = getSelected();
     if (sel && (sel.type === 'camera' || sel.type === 'character')){
