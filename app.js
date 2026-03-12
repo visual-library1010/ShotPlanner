@@ -6,7 +6,7 @@ function getNextSetupNumber(){
   return Math.max(...nums)+1;
 }
 
-const APP_VERSION = "v163";
+const APP_VERSION = "v165";
 
 function getCanvasCenterWorld(){
   const rect = canvas.getBoundingClientRect();
@@ -16,6 +16,27 @@ function getCanvasCenterWorld(){
 }
 
 
+
+
+function rotateOthersToFaceCharacter(speakerId){
+  const speaker = state.elements.find(e => e.id === speakerId);
+  if (!speaker || speaker.type !== 'character') return;
+
+  const others = state.elements.filter(e => e.type === 'character' && e.id !== speaker.id);
+  if (others.length === 0) return;
+
+  pushHistory();
+
+  for (const character of others){
+    const dx = speaker.x - character.x;
+    const dy = speaker.y - character.y;
+    character.rotation = deg(Math.atan2(dy, dx));
+  }
+
+  saveToStorage();
+  syncPropsUI(true);
+  draw();
+}
 
 
 function createTrackTargetFor(sourceEl, overrides = null){
@@ -104,6 +125,7 @@ const modalClear = document.getElementById('modal-clear');
 const modalDeleteScene = document.getElementById('modal-delete-scene');
 const btnDeleteScene = document.getElementById('btn-delete-scene');
 const btnDuplicateScene = document.getElementById('btn-duplicate-scene');
+const btnRotateToSpeaker = document.getElementById('btn-rotate-to-speaker');
 const btnConfirmDeleteScene = document.getElementById('btn-confirm-delete-scene');
 const modalClearYes = document.getElementById('modal-clear-yes');
 const modalClearNo = document.getElementById('modal-clear-no');
@@ -1844,6 +1866,15 @@ if (btnDuplicateScene){
     duplicateActiveScene();
   });
 }
+if (btnRotateToSpeaker){
+  btnRotateToSpeaker.addEventListener('click', (e)=>{
+    e.preventDefault();
+    e.stopPropagation();
+    const sel = getSelected();
+    if (!sel || sel.type !== 'character') return;
+    rotateOthersToFaceCharacter(sel.id);
+  });
+}
 if (btnConfirmDeleteScene){
   btnConfirmDeleteScene.addEventListener('click', (e)=>{
     e.preventDefault();
@@ -2198,6 +2229,7 @@ function syncPropsUI(skipFocusPreserve=false){
   const isWall = el.type === 'wall';
 
   const rowCharName = document.getElementById('row-character-name');
+  const rowRotateToSpeaker = document.getElementById('row-rotate-to-speaker');
   const rowCamIdShot = document.getElementById('row-camera-id-shot');
   const rowShotTypeLens = document.getElementById('row-shottype-lens');
   const rowSceneSetup = document.getElementById('row-scene-setup');
@@ -2232,6 +2264,7 @@ function syncPropsUI(skipFocusPreserve=false){
     if (rowSceneSetup) rowSceneSetup.classList.add('hidden');
     cameraFields.classList.add('hidden');
     if (rowCharName) rowCharName.classList.add('hidden');
+    if (rowRotateToSpeaker) rowRotateToSpeaker.classList.add('hidden');
 
     [P.id, P.type].forEach(input=>{
       const row = input?.closest('.row') || input?.closest('.grid2');
@@ -2246,6 +2279,7 @@ function syncPropsUI(skipFocusPreserve=false){
     if (rowSceneSetup) rowSceneSetup.classList.add('hidden');
     cameraFields.classList.add('hidden');
     if (rowCharName) rowCharName.classList.remove('hidden');
+    if (rowRotateToSpeaker) rowRotateToSpeaker.classList.remove('hidden');
 
     [P.id, P.type, P.x, P.y, P.sx, P.sy].forEach(input=>{
       const row = input?.closest('.row') || input?.closest('.grid2');
@@ -2261,6 +2295,7 @@ function syncPropsUI(skipFocusPreserve=false){
   if (isCamera){
     // Camera panel: match screenshot
     if (rowCharName) rowCharName.classList.add('hidden');
+    if (rowRotateToSpeaker) rowRotateToSpeaker.classList.add('hidden');
     if (rowCamIdShot) rowCamIdShot.classList.remove('hidden');
     if (rowShotTypeLens) rowShotTypeLens.classList.remove('hidden');
     if (rowSceneSetup) rowSceneSetup.classList.remove('hidden');
