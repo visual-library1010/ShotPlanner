@@ -6,7 +6,7 @@ function getNextSetupNumber(){
   return Math.max(...nums)+1;
 }
 
-const APP_VERSION = "v162";
+const APP_VERSION = "v163";
 
 function getCanvasCenterWorld(){
   const rect = canvas.getBoundingClientRect();
@@ -103,6 +103,7 @@ const btnDelete = document.getElementById('btn-delete');
 const modalClear = document.getElementById('modal-clear');
 const modalDeleteScene = document.getElementById('modal-delete-scene');
 const btnDeleteScene = document.getElementById('btn-delete-scene');
+const btnDuplicateScene = document.getElementById('btn-duplicate-scene');
 const btnConfirmDeleteScene = document.getElementById('btn-confirm-delete-scene');
 const modalClearYes = document.getElementById('modal-clear-yes');
 const modalClearNo = document.getElementById('modal-clear-no');
@@ -1836,6 +1837,13 @@ if (btnDeleteScene){
     openModal(modalDeleteScene);
   });
 }
+if (btnDuplicateScene){
+  btnDuplicateScene.addEventListener('click', (e)=>{
+    e.preventDefault();
+    e.stopPropagation();
+    duplicateActiveScene();
+  });
+}
 if (btnConfirmDeleteScene){
   btnConfirmDeleteScene.addEventListener('click', (e)=>{
     e.preventDefault();
@@ -1933,11 +1941,10 @@ function csvEscape(v){
   return s;
 }
 
-
 function getExportBaseName(){
   const active = (typeof getActiveScene === 'function') ? getActiveScene() : null;
-  let num = active && active.sceneNumber ? String(active.sceneNumber).trim() : '';
-  if(!num) return 'untitled_AOA';
+  const num = active && active.sceneNumber ? String(active.sceneNumber).trim() : '';
+  if (!num) return 'untitled_AOA';
   return `${num}_AOA`;
 }
 
@@ -2064,6 +2071,30 @@ function createNewScene(){
   };
   scenes.push(s);
   loadSceneIntoState(s.id);
+}
+
+function duplicateActiveScene(){
+  const source = getActiveScene();
+  if (!source) return;
+
+  saveActiveSceneSnapshot();
+
+  const idx = scenes.findIndex(s => s.id === source.id);
+  if (idx === -1) return;
+
+  const copy = deepClone(source);
+  copy.id = uid('scene');
+  copy.name = `${source.name || sceneNameForIndex(idx)} Copy`;
+  copy.sceneNumber = '';
+
+  if (Array.isArray(copy.elements)){
+    copy.elements.forEach(el => {
+      if (el && el.type === 'camera') el.sceneNumber = '';
+    });
+  }
+
+  scenes.splice(idx + 1, 0, copy);
+  loadSceneIntoState(copy.id);
 }
 
 function deleteActiveScene(){
