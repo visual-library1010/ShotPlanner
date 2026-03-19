@@ -118,6 +118,8 @@ body{
 }
 .toolicon:hover{transform: translateY(-1px); box-shadow: 0 8px 16px rgba(0,0,0,0.10); background: rgba(0,0,0,0.02)}
 .toolicon:disabled{opacity:0.35; cursor:not-allowed; box-shadow:none}
+.toolicon.active{background: rgba(59,130,246,0.10); border-color: rgba(59,130,246,0.35); box-shadow: 0 8px 16px rgba(59,130,246,0.12)}
+.toolicon.active .material-symbols-outlined{color: rgba(37,99,235,0.95)}
 .toolicon.danger{border-color: rgba(239,68,68,0.25)}
 .toolicon.danger .material-symbols-outlined{color: rgba(239,68,68,0.90)}
 .toolsep{height:1px; background: rgba(0,0,0,0.10); margin:2px 0}

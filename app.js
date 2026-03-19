@@ -6,7 +6,7 @@ function getNextSetupNumber(){
   return Math.max(...nums)+1;
 }
 
-const APP_VERSION = "v165";
+const APP_VERSION = "v177";
 
 function getCanvasCenterWorld(){
   const rect = canvas.getBoundingClientRect();
@@ -214,6 +214,7 @@ function ensureLabelOffsets(){
 let state = {
   elements: [],
   selectedId: null,
+  selectedIds: [],
 };
 
 // history stacks of serialized snapshots
@@ -323,13 +324,14 @@ function deepClone(obj){
 }
 
 function snapshot(){
-  return JSON.stringify({ elements: state.elements, selectedId: state.selectedId });
+  return JSON.stringify({ elements: state.elements, selectedId: state.selectedId, selectedIds: state.selectedIds || [] });
 }
 
 function restoreFromSnapshot(snap){
   const parsed = JSON.parse(snap);
   state.elements = parsed.elements || [];
   state.selectedId = parsed.selectedId ?? null;
+  state.selectedIds = Array.isArray(parsed.selectedIds) ? parsed.selectedIds.slice() : (state.selectedId ? [state.selectedId] : []);
   syncPropsUI();
   syncButtons();
   saveToStorage();
@@ -500,11 +502,35 @@ function getSelected(){
   return state.elements.find(e => e.id === state.selectedId) || null;
 }
 
-function setSelected(id){
-  state.selectedId = id;
+function getSelectedIds(){
+  if (!Array.isArray(state.selectedIds)) state.selectedIds = state.selectedId ? [state.selectedId] : [];
+  return state.selectedIds;
+}
+
+function isElementSelected(elOrId){
+  const id = typeof elOrId === 'string' ? elOrId : elOrId && elOrId.id;
+  return !!id && getSelectedIds().includes(id);
+}
+
+function setSelection(ids, primaryId = null){
+  const valid = [];
+  const seen = new Set();
+  for (const id of Array.isArray(ids) ? ids : []){
+    if (!id || seen.has(id)) continue;
+    if (!state.elements.find(e => e.id === id)) continue;
+    seen.add(id);
+    valid.push(id);
+  }
+  state.selectedIds = valid;
+  if (primaryId && valid.includes(primaryId)) state.selectedId = primaryId;
+  else state.selectedId = valid[0] || null;
   syncPropsUI();
   syncButtons();
   draw();
+}
+
+function setSelected(id){
+  setSelection(id ? [id] : [], id || null);
 }
 
 function updateElement(id, patch){
@@ -617,46 +643,45 @@ function addElement(type, overrides = null){
   }
 
   state.elements.push(el);
+  activeTool = 'select';
+  syncActiveToolUI();
   setSelected(el.id);
   saveToStorage();
 }
 
 function deleteSelected(){
-  if (!state.selectedId) return;
+  const selectedIds = getSelectedIds().slice();
+  if (!selectedIds.length) return;
   pushHistory();
 
-  const sel = getSelected();
+  const extraDeleteIds = new Set();
 
-  // If deleting a character, also delete its track target (if any)
-  if (sel && sel.type === 'character' && sel.trackToId){
-    const tid = sel.trackToId;
-    state.elements = state.elements.filter(e => e.id !== tid);
-  }
+  for (const id of selectedIds){
+    const sel = state.elements.find(e => e.id === id);
+    if (!sel) continue;
 
-  // If deleting a character track target, unlink its parent character (keep parent)
-  if (sel && sel.isTrackTarget && sel.parentId){
-    const parent = state.elements.find(e => e.id === sel.parentId);
-    if (parent && parent.type === 'character' && parent.trackToId === sel.id){
-      parent.trackToId = null;
+    if ((sel.type === 'character' || sel.type === 'camera') && sel.trackToId){
+      extraDeleteIds.add(sel.trackToId);
+    }
+
+    if ((sel.type === 'trackTarget' || sel.isTrackTarget) && sel.parentId){
+      const parent = state.elements.find(e => e.id === sel.parentId);
+      if (parent && parent.trackToId === sel.id){
+        parent.trackToId = null;
+      }
     }
   }
 
-  // If deleting a camera, also delete its track target (if any)
-  if (sel && sel.type === 'camera' && sel.trackToId){
-    const tid = sel.trackToId;
-    state.elements = state.elements.filter(e => e.id !== tid);
-  }
-
-  // If deleting a track target, unlink its parent camera
-  if (sel && sel.type === 'trackTarget' && sel.parentId){
-    const parent = state.elements.find(e => e.id === sel.parentId);
-    if (parent && parent.type === 'camera' && parent.trackToId === sel.id){
-      parent.trackToId = null;
+  const idsToDelete = new Set([...selectedIds, ...extraDeleteIds]);
+  for (const el of state.elements){
+    if ((el.type === 'character' || el.type === 'camera') && el.trackToId && idsToDelete.has(el.trackToId) && !idsToDelete.has(el.id)){
+      el.trackToId = null;
     }
   }
 
-  state.elements = state.elements.filter(e => e.id !== state.selectedId);
+  state.elements = state.elements.filter(e => !idsToDelete.has(e.id));
   state.selectedId = null;
+  state.selectedIds = [];
   syncPropsUI();
   syncButtons();
   saveToStorage();
@@ -685,7 +710,7 @@ function closeClearModal(){
 }
 
 function onDeletePressed(){
-  if (state.selectedId){
+  if (getSelectedIds().length){
     deleteSelected();
     return;
   }
@@ -1023,11 +1048,12 @@ function draw(){
   }
 
   const sel = getSelected();
-  if (sel) {
+  if (sel && getSelectedIds().length === 1) {
     drawRotationGizmo(sel);
     if (sel.type === 'wall') drawWallResizeGizmo(sel);
   }
 
+  drawMarquee();
   hudZoom.textContent = `${Math.round(view.scale*100)}%`;
 }
 
@@ -1049,16 +1075,16 @@ function drawElement(el){
   ctx.translate(p.x * dpr, p.y * dpr);
   ctx.rotate(rad(el.rotation || 0));
   // Elegant selection indicator: soft drop shadow + subtle glow
-    if (el.id === state.selectedId){
+    if (isElementSelected(el)){
       // soft elevation shadow
-      ctx.shadowColor = 'rgba(0,0,0,0.30)';
-      ctx.shadowBlur = 28 * dpr;
+      ctx.shadowColor = 'rgba(0,0,0,0.34)';
+      ctx.shadowBlur = 34 * dpr;
       ctx.shadowOffsetX = 0;
-      ctx.shadowOffsetY = 10 * dpr;
+      ctx.shadowOffsetY = 12 * dpr;
 
-      // subtle blue glow overlay
-      ctx.shadowColor = 'rgba(59,130,246,0.45)';
-      ctx.shadowBlur = 18 * dpr;
+      // stronger blue glow overlay for clearer multi-select feedback
+      ctx.shadowColor = 'rgba(59,130,246,0.70)';
+      ctx.shadowBlur = 30 * dpr;
       ctx.shadowOffsetX = 0;
       ctx.shadowOffsetY = 0;
     } else {
@@ -1439,6 +1465,48 @@ function hitTestLabel(screenX, screenY){
   return null;
 }
 
+function getElementSelectionPoint(el){
+  if (!el) return null;
+  if (el.type === 'wall'){
+    return { x: el.x, y: el.y };
+  }
+  return { x: el.x, y: el.y };
+}
+
+function getIdsInMarquee(marquee){
+  if (!marquee) return [];
+  const x0 = Math.min(marquee.x0, marquee.x1);
+  const x1 = Math.max(marquee.x0, marquee.x1);
+  const y0 = Math.min(marquee.y0, marquee.y1);
+  const y1 = Math.max(marquee.y0, marquee.y1);
+  return state.elements
+    .filter(el => {
+      const pt = getElementSelectionPoint(el);
+      if (!pt) return false;
+      const sp = worldToScreen(pt.x, pt.y);
+      return sp.x >= x0 && sp.x <= x1 && sp.y >= y0 && sp.y <= y1;
+    })
+    .map(el => el.id);
+}
+
+function drawMarquee(){
+  if (!drag.active || drag.mode !== 'marquee' || !drag.marquee) return;
+  const dpr = window.devicePixelRatio || 1;
+  const x = Math.min(drag.marquee.x0, drag.marquee.x1);
+  const y = Math.min(drag.marquee.y0, drag.marquee.y1);
+  const w = Math.abs(drag.marquee.x1 - drag.marquee.x0);
+  const h = Math.abs(drag.marquee.y1 - drag.marquee.y0);
+  ctx.save();
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.fillStyle = 'rgba(59,130,246,0.12)';
+  ctx.strokeStyle = 'rgba(59,130,246,0.9)';
+  ctx.lineWidth = 1.5 * dpr;
+  ctx.setLineDash([6 * dpr, 4 * dpr]);
+  ctx.fillRect(x * dpr, y * dpr, w * dpr, h * dpr);
+  ctx.strokeRect(x * dpr, y * dpr, w * dpr, h * dpr);
+  ctx.restore();
+}
+
 function pointInElement(px, py, el){
   // transform point into element local space
   const dx = px - el.x;
@@ -1462,12 +1530,23 @@ function pointInElement(px, py, el){
 // ---------- Interaction ----------
 let drag = {
   active: false,
-  mode: 'move', // move|pan|rotate|resize-wall
+  mode: 'move', // move|pan|rotate|resize-wall|marquee
   startWorld: {x:0,y:0},
   startEl: null,
   startOffset: {x:0,y:0},
   startAngle: 0,
+  marquee: null,
+  additive: false,
+  moved: false,
+  groupStart: null,
 };
+
+let activeTool = 'select';
+const btnSelect = document.getElementById('btn-select');
+
+function syncActiveToolUI(){
+  if (btnSelect) btnSelect.classList.toggle('active', activeTool === 'select');
+}
 
 canvas.addEventListener('mousedown', (e)=>{
   const rect = canvas.getBoundingClientRect();
@@ -1476,88 +1555,124 @@ canvas.addEventListener('mousedown', (e)=>{
   const w = screenToWorld(sx, sy);
 
   if (e.button !== 0) return;
+
+  const currentSel = getSelected();
+  const singleSelection = getSelectedIds().length === 1;
+
   // label drag (draggable, anchored label)
   const hitLbl = hitTestLabel(sx, sy);
-  if (hitLbl){
+  if (hitLbl && singleSelection){
     setSelected(hitLbl.id);
     drag.active = true;
     drag.mode = 'label';
     drag.startEl = deepClone(hitLbl);
     drag.startWorld = w;
+    drag.moved = false;
     pushHistory();
     canvas.style.cursor = 'grabbing';
     return;
   }
 
-// If clicking the rotation handle of the currently selected element, start rotating immediately.
-const currentSel = getSelected();
-if (currentSel && currentSel.type === 'wall' && hitWallResizeHandle(w.x, w.y, currentSel)){
-  drag.active = true;
-  drag.mode = 'resize-wall';
-  drag.startEl = deepClone(currentSel);
-  drag.startWorld = w;
-  pushHistory();
-  canvas.style.cursor = 'grabbing';
-  return;
-}
-if (currentSel && hitRotationHandle(w.x, w.y, currentSel)){
-  drag.active = true;
-  drag.mode = 'rotate';
-  drag.startEl = deepClone(currentSel);
-  drag.startWorld = w;
-  drag.startAngle = Math.atan2(w.y - currentSel.y, w.x - currentSel.x);
-  pushHistory();
-  canvas.style.cursor = 'grabbing';
-  return;
-}
-
-
-  // space + drag => pan
-  if (e.code === 'Space' || e.key === ' ' || e.buttons === 1 && keys.Space){
+  if (currentSel && singleSelection && currentSel.type === 'wall' && hitWallResizeHandle(w.x, w.y, currentSel)){
     drag.active = true;
-    drag.mode = 'pan';
-    drag.startOffset = {x: view.offsetX, y: view.offsetY};
-    drag.startWorld = {x: sx, y: sy}; // screen coords for pan
+    drag.mode = 'resize-wall';
+    drag.startEl = deepClone(currentSel);
+    drag.startWorld = w;
+    drag.moved = false;
+    pushHistory();
+    canvas.style.cursor = 'grabbing';
+    return;
+  }
+  if (currentSel && singleSelection && hitRotationHandle(w.x, w.y, currentSel)){
+    drag.active = true;
+    drag.mode = 'rotate';
+    drag.startEl = deepClone(currentSel);
+    drag.startWorld = w;
+    drag.startAngle = Math.atan2(w.y - currentSel.y, w.x - currentSel.x);
+    drag.moved = false;
+    pushHistory();
     canvas.style.cursor = 'grabbing';
     return;
   }
 
-
-  const hit = hitTest(w.x, w.y);
-  if (!hit){
-    setSelected(null);
+  if (e.code === 'Space' || e.key === ' ' || e.buttons === 1 && keys.Space){
+    drag.active = true;
+    drag.mode = 'pan';
+    drag.startOffset = {x: view.offsetX, y: view.offsetY};
+    drag.startWorld = {x: sx, y: sy};
+    drag.moved = false;
+    canvas.style.cursor = 'grabbing';
     return;
   }
 
-setSelected(hit.id);
+  const hit = hitTest(w.x, w.y);
+  if (!hit){
+    if (activeTool === 'select'){
+      drag.active = true;
+      drag.mode = 'marquee';
+      drag.startWorld = w;
+      drag.marquee = { x0: sx, y0: sy, x1: sx, y1: sy };
+      drag.additive = e.shiftKey;
+      drag.moved = false;
+      canvas.style.cursor = 'crosshair';
+    } else {
+      setSelected(null);
+    }
+    return;
+  }
 
-if (hit.type === 'wall' && hitWallResizeHandle(w.x, w.y, hit)){
+  if (e.shiftKey){
+    const next = getSelectedIds().slice();
+    const idx = next.indexOf(hit.id);
+    if (idx >= 0) next.splice(idx, 1);
+    else next.push(hit.id);
+    setSelection(next, hit.id);
+    return;
+  }
+
+  if (!isElementSelected(hit.id)){
+    setSelected(hit.id);
+  } else if (state.selectedId !== hit.id){
+    state.selectedId = hit.id;
+    syncPropsUI();
+    syncButtons();
+    draw();
+  }
+
+  const selectedIds = getSelectedIds().slice();
+
+  if (hit.type === 'wall' && singleSelection && hitWallResizeHandle(w.x, w.y, hit)){
+    drag.active = true;
+    drag.mode = 'resize-wall';
+    drag.startEl = deepClone(hit);
+    drag.startWorld = w;
+    drag.moved = false;
+    pushHistory();
+    canvas.style.cursor = 'grabbing';
+    return;
+  }
+
+  if (singleSelection && state.selectedId && hitRotationHandle(w.x, w.y, hit)){
+    drag.active = true;
+    drag.mode = 'rotate';
+    drag.startEl = deepClone(hit);
+    drag.startWorld = w;
+    drag.startAngle = Math.atan2(w.y - hit.y, w.x - hit.x);
+    drag.moved = false;
+    pushHistory();
+    canvas.style.cursor = 'grabbing';
+    return;
+  }
+
   drag.active = true;
-  drag.mode = 'resize-wall';
-  drag.startEl = deepClone(hit);
-  drag.startWorld = w;
-  pushHistory();
-  canvas.style.cursor = 'grabbing';
-  return;
-}
-
-// rotation gizmo: click/drag the handle to rotate
-if (state.selectedId && hitRotationHandle(w.x, w.y, hit)){
-  drag.active = true;
-  drag.mode = 'rotate';
-  drag.startEl = deepClone(hit);
-  drag.startWorld = w; // world point at mouse down
-  drag.startAngle = Math.atan2(w.y - hit.y, w.x - hit.x);
-  pushHistory();
-  canvas.style.cursor = 'grabbing';
-  return;
-}
-
-drag.active = true;
-drag.mode = 'move';
-
+  drag.mode = 'move';
   drag.startWorld = w;
   drag.startEl = deepClone(hit);
+  drag.groupStart = selectedIds.map(id => {
+    const el = state.elements.find(x => x.id === id);
+    return el ? { id, x: el.x, y: el.y } : null;
+  }).filter(Boolean);
+  drag.moved = false;
   pushHistory();
   canvas.style.cursor = 'grabbing';
 });
@@ -1570,29 +1685,38 @@ canvas.addEventListener('mousemove', (e)=>{
   lastCanvasPointer.sx = sx;
   lastCanvasPointer.sy = sy;
 
-  // Hover cursor hints
   if (!drag.active){
     const w = screenToWorld(sx, sy);
-
     const sel = getSelected();
-    if (sel && sel.type === 'wall' && hitWallResizeHandle(w.x, w.y, sel)){
+    const singleSelection = getSelectedIds().length === 1;
+    if (sel && singleSelection && sel.type === 'wall' && hitWallResizeHandle(w.x, w.y, sel)){
       canvas.style.cursor = 'ew-resize';
-    } else if (sel && hitRotationHandle(w.x, w.y, sel)){
+    } else if (sel && singleSelection && hitRotationHandle(w.x, w.y, sel)){
       canvas.style.cursor = 'grab';
-    } else if (hitTestLabel(sx, sy)){
+    } else if (singleSelection && hitTestLabel(sx, sy)){
       canvas.style.cursor = 'pointer';
+    } else if (activeTool === 'select'){
+      canvas.style.cursor = 'default';
     } else {
       canvas.style.cursor = 'default';
     }
     return;
   }
 
-  // Pan uses screen space deltas
   if (drag.mode === 'pan'){
     const dx = sx - drag.startWorld.x;
     const dy = sy - drag.startWorld.y;
     view.offsetX = drag.startOffset.x + dx;
     view.offsetY = drag.startOffset.y + dy;
+    drag.moved = drag.moved || Math.abs(dx) > 2 || Math.abs(dy) > 2;
+    draw();
+    return;
+  }
+
+  if (drag.mode === 'marquee'){
+    drag.marquee.x1 = sx;
+    drag.marquee.y1 = sy;
+    drag.moved = drag.moved || Math.abs(sx - drag.marquee.x0) > 3 || Math.abs(sy - drag.marquee.y0) > 3;
     draw();
     return;
   }
@@ -1602,13 +1726,11 @@ canvas.addEventListener('mousemove', (e)=>{
   if (!sel || !drag.startEl) return;
 
   if (drag.mode === 'label'){
-    // Draggable anchored label: store offset in world units
     sel.labelDx = w.x - sel.x;
     sel.labelDy = w.y - sel.y;
-
     const idx = state.elements.findIndex(x => x.id === sel.id);
     if (idx >= 0) state.elements[idx] = sel;
-
+    drag.moved = true;
     saveToStorage();
     syncPropsUI(true);
     draw();
@@ -1620,18 +1742,12 @@ canvas.addEventListener('mousemove', (e)=>{
     const a1 = Math.atan2(w.y - drag.startEl.y, w.x - drag.startEl.x);
     const delta = a1 - a0;
     let next = (drag.startEl.rotation || 0) + deg(delta);
-
-    // normalize to [-180, 180]
     next = ((next + 180) % 360) - 180;
-    if (sel.type === 'wall'){
-      next = snapWallRotation(next);
-    }
-
+    if (sel.type === 'wall') next = snapWallRotation(next);
     sel.rotation = next;
-
     const idx = state.elements.findIndex(x => x.id === sel.id);
     if (idx >= 0) state.elements[idx] = sel;
-
+    drag.moved = true;
     saveToStorage();
     syncPropsUI(true);
     draw();
@@ -1645,34 +1761,32 @@ canvas.addEventListener('mousemove', (e)=>{
     const py = w.y - anchor.y;
     const projected = (px * axis.x + py * axis.y);
     const newWidth = Math.max(40, projected);
-
     sel.width = newWidth;
     sel.x = anchor.x + axis.x * (newWidth / 2);
     sel.y = anchor.y + axis.y * (newWidth / 2);
-
     const idx = state.elements.findIndex(x => x.id === sel.id);
     if (idx >= 0) state.elements[idx] = sel;
-
+    drag.moved = true;
     saveToStorage();
     syncPropsUI(true);
     draw();
     return;
   }
 
-  // Default: move element
   const dx = w.x - drag.startWorld.x;
   const dy = w.y - drag.startWorld.y;
-  sel.x = drag.startEl.x + dx;
-  sel.y = drag.startEl.y + dy;
+  for (const start of (drag.groupStart || [])){
+    const idx = state.elements.findIndex(x => x.id === start.id);
+    if (idx < 0) continue;
+    state.elements[idx].x = start.x + dx;
+    state.elements[idx].y = start.y + dy;
+  }
 
-  const idx = state.elements.findIndex(x => x.id === sel.id);
-  if (idx >= 0) state.elements[idx] = sel;
-
+  drag.moved = drag.moved || Math.abs(dx) > 0 || Math.abs(dy) > 0;
   saveToStorage();
   syncPropsUI(true);
   draw();
 });
-
 
 window.addEventListener('mousemove', (e)=>{
   const rect = canvas.getBoundingClientRect();
@@ -1692,9 +1806,28 @@ canvas.addEventListener('mouseleave', ()=>{
 
 window.addEventListener('mouseup', ()=>{
   if (!drag.active) return;
+  if (drag.mode === 'marquee'){
+    const ids = drag.moved ? getIdsInMarquee(drag.marquee) : [];
+    if (drag.additive){
+      const merged = getSelectedIds().slice();
+      for (const id of ids){
+        if (!merged.includes(id)) merged.push(id);
+      }
+      setSelection(merged, ids[ids.length - 1] || state.selectedId);
+    } else if (ids.length){
+      setSelection(ids, ids[ids.length - 1]);
+    } else {
+      setSelected(null);
+    }
+  }
   drag.active = false;
   drag.startEl = null;
+  drag.groupStart = null;
+  drag.marquee = null;
+  drag.additive = false;
+  drag.moved = false;
   canvas.style.cursor = 'default';
+  draw();
 });
 
 canvas.addEventListener('wheel', (e)=>{
@@ -1761,7 +1894,7 @@ window.addEventListener('keydown', (e)=>{
     }
     }
   } else if (!isTyping && (e.key === 'Delete' || e.key === 'Backspace')){
-    if (state.selectedId){
+    if (getSelectedIds().length){
       e.preventDefault();
       deleteSelected();
     }
@@ -1896,6 +2029,15 @@ document.querySelectorAll('[data-character-preset]').forEach(btn=>{
   });
 });
 
+if (btnSelect){
+  btnSelect.addEventListener('click', (e)=>{
+    e.preventDefault();
+    activeTool = 'select';
+    syncActiveToolUI();
+  });
+}
+syncActiveToolUI();
+
 btnDelete.addEventListener('click', onDeletePressed);
 
 btnUndo.addEventListener('click', undo);
@@ -1917,6 +2059,7 @@ fileLoad.addEventListener('change', async ()=>{
     state.elements = normalizeElements(parsed.elements);
     ensureLabelOffsets();
     state.selectedId = null;
+    state.selectedIds = [];
     saveToStorage();
     syncPropsUI();
     syncButtons();
@@ -2139,6 +2282,7 @@ function deleteActiveScene(){
   activeSceneId = next.id;
   // load next into state
   state.selectedId = null;
+  state.selectedIds = [];
   state.elements = JSON.parse(JSON.stringify(next.elements || []));
   const v = next.view || { scale: 1, offsetX: 0, offsetY: 0 };
   view.scale = v.scale ?? 1;
@@ -2175,7 +2319,7 @@ function renderSceneMenu(){
 function syncButtons(){
   btnUndo.disabled = history.length === 0;
   btnRedo.disabled = redo.length === 0;
-  btnDelete.disabled = state.selectedId ? false : (state.elements.length === 0);
+  btnDelete.disabled = getSelectedIds().length ? false : (state.elements.length === 0);
 }
 function syncPropsUI(skipFocusPreserve=false){
   const el = getSelected();
@@ -2407,6 +2551,7 @@ function init(){
   state.elements = normalizeElements(deepClone(active.elements || []));
   ensureLabelOffsets();
   state.selectedId = null;
+  state.selectedIds = [];
   history = [];
   redo = [];
   const v = active.view || { scale: 1, offsetX: 0, offsetY: 0 };
