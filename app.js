@@ -6,7 +6,7 @@ function getNextSetupNumber(){
   return Math.max(...nums)+1;
 }
 
-const APP_VERSION = "v177";
+const APP_VERSION = "v183";
 
 function getCanvasCenterWorld(){
   const rect = canvas.getBoundingClientRect();
@@ -39,23 +39,45 @@ function rotateOthersToFaceCharacter(speakerId){
 }
 
 
+function getTrackTargetIds(sourceEl){
+  if (!sourceEl || typeof sourceEl !== 'object') return [];
+  if (Array.isArray(sourceEl.trackToIds)) return sourceEl.trackToIds.filter(Boolean);
+  if (sourceEl.trackToId) return [sourceEl.trackToId];
+  if (sourceEl.trackTo) return [sourceEl.trackTo];
+  return [];
+}
+
+function setTrackTargetIds(sourceEl, ids){
+  const nextIds = Array.isArray(ids) ? ids.filter(Boolean) : [];
+  sourceEl.trackToIds = nextIds;
+  sourceEl.trackToId = nextIds[0] || null; // legacy compatibility
+}
+
+function appendTrackTargetId(sourceEl, id){
+  const ids = getTrackTargetIds(sourceEl);
+  ids.push(id);
+  setTrackTargetIds(sourceEl, ids);
+}
+
+function removeTrackTargetId(sourceEl, id){
+  setTrackTargetIds(sourceEl, getTrackTargetIds(sourceEl).filter(tid => tid !== id));
+}
+
 function createTrackTargetFor(sourceEl, overrides = null){
+  const existingIds = getTrackTargetIds(sourceEl);
+  const lastTarget = existingIds.length ? state.elements.find(e => e.id === existingIds[existingIds.length - 1]) : null;
+  const anchorX = lastTarget ? lastTarget.x : sourceEl.x;
+  const anchorY = lastTarget ? lastTarget.y : sourceEl.y;
+  const sourceDrawType = sourceEl.type === 'trackTarget' ? (sourceEl.trackFor || 'camera') : sourceEl.type;
   const hasOverridePos = !!(overrides && typeof overrides.x === 'number' && typeof overrides.y === 'number');
-  const targetX = hasOverridePos ? overrides.x : (sourceEl.x + (sourceEl.type === 'character' ? 120 : 80));
-  const targetY = hasOverridePos ? overrides.y : sourceEl.y;
+  const targetX = hasOverridePos ? overrides.x : (anchorX + (sourceDrawType === 'character' ? 120 : 80));
+  const targetY = hasOverridePos ? overrides.y : anchorY;
   // Creates a linked track target for cameras or characters.
-  // Cameras keep the existing trackTarget element type; characters get a real 'character' element
-  // so dragging/rotating behaves exactly like a normal character.
+  // Camera targets are real camera elements marked with isTrackTarget so they can chain endlessly.
   pushHistory();
 
-  // Remove existing target if present
-  if (sourceEl.trackToId){
-    state.elements = state.elements.filter(e => e.id !== sourceEl.trackToId);
-    sourceEl.trackToId = null;
-  }
-
   let target;
-  if (sourceEl.type === 'character'){
+  if (sourceDrawType === 'character'){
     target = {
       id: uid(),
       type: 'character',
@@ -68,32 +90,41 @@ function createTrackTargetFor(sourceEl, overrides = null){
       rotation: sourceEl.rotation || 0,
       scaleX: sourceEl.scaleX ?? 1,
       scaleY: sourceEl.scaleY ?? 1,
-      label: '',         // no label on targets
+      label: '',
       width: sourceEl.width ?? 40,
       height: sourceEl.height ?? 40,
     };
   } else {
-    // camera (original behavior)
     target = {
-      id: uid(),
-      type: 'trackTarget',
-      trackFor: sourceEl.type, // camera
+      id: uid('camera'),
+      type: 'camera',
+      isTrackTarget: true,
       parentId: sourceEl.id,
-      parentId: sourceEl.id,
+      noExport: true,
       color: sourceEl.color || '#111',
       x: targetX,
       y: targetY,
       rotation: sourceEl.rotation || 0,
       scaleX: sourceEl.scaleX ?? 1,
       scaleY: sourceEl.scaleY ?? 1,
-      width: sourceEl.width,
-      height: sourceEl.height,
-      noExport: true
+      width: sourceEl.width ?? 52,
+      height: sourceEl.height ?? 52,
+      fov: sourceEl.fov ?? 60,
+      label: '',
+      shotNumber: '',
+      shotType: '',
+      lens: sourceEl.lens || '35mm',
+      nickname: '',
+      techNotes: '',
+      productionNotes: '',
+      sceneNumber: '',
+      setupNumber: '',
+      cameraSupport: sourceEl.cameraSupport || 'Tripod'
     };
   }
 
   state.elements.push(target);
-  sourceEl.trackToId = target.id;
+  appendTrackTargetId(sourceEl, target.id);
   sourceEl.trackMode = sourceEl.trackMode || 'to'; // 'to' | 'from' | 'between' | 'circle'
 
   saveToStorage();
@@ -182,7 +213,7 @@ const STORAGE_KEY = 'shot-planner-scenes-v1';
 
 
 function getElementLabelText(el){
-  if (!el || el.type === 'label') return '';
+  if (!el || el.type === 'label' || el.isTrackTarget) return '';
   if (el.type === 'camera'){
     const shotNum = (el.shotNumber || '').toString().trim();
     const shotType = (el.shotType || '').toString().trim();
@@ -202,7 +233,7 @@ function getDefaultLabelOffset(el){
 
 function ensureLabelOffsets(){
   for (const el of state.elements){
-    if (el.type === 'trackTarget') continue;
+    if (isTrackTargetEl(el)) continue;
     if (typeof el.labelDx !== 'number') el.labelDx = 0;
     if (typeof el.labelDy !== 'number'){
       const d = getDefaultLabelOffset(el);
@@ -429,7 +460,7 @@ function resolveTrackParent(targetEl, elements){
   }
 
   // 2) reverse lookup from parents
-  const p2 = elements.find(e => (e.type === 'camera' || e.type === 'character') && (e.trackToId === targetEl.id || e.trackTo === targetEl.id));
+  const p2 = elements.find(e => (e.type === 'camera' || e.type === 'character') && getTrackTargetIds(e).includes(targetEl.id));
   if (p2){
     targetEl.parentId = p2.id;
     return p2;
@@ -459,7 +490,8 @@ function normalizeElements(elements){
     if (!el || typeof el !== 'object') continue;
 
     // migrate trackTo -> trackToId (older saves)
-    if (el.trackTo && !el.trackToId) el.trackToId = el.trackTo;
+    if (el.trackTo && !el.trackToId && !Array.isArray(el.trackToIds)) el.trackToId = el.trackTo;
+    if (!Array.isArray(el.trackToIds)) el.trackToIds = el.trackToId ? [el.trackToId] : [];
 
     // some historical saves used parent instead of parentId
     if (el.parent && !el.parentId) el.parentId = el.parent;
@@ -467,22 +499,46 @@ function normalizeElements(elements){
     // normalize booleans
     if (el.isTrackTarget === 'true') el.isTrackTarget = true;
     if (el.isTrackTarget === 'false') el.isTrackTarget = false;
+
+    // migrate legacy camera trackTarget objects into real camera elements
+    if (el.type === 'trackTarget'){
+      const trackFor = el.trackFor || 'camera';
+      if (trackFor === 'camera'){
+        el.type = 'camera';
+        el.isTrackTarget = true;
+        el.label = '';
+        el.shotNumber = '';
+        el.shotType = '';
+        el.nickname = '';
+        el.techNotes = '';
+        el.productionNotes = '';
+        el.sceneNumber = '';
+        el.setupNumber = '';
+        if (typeof el.fov !== 'number') el.fov = 60;
+        if (!el.cameraSupport) el.cameraSupport = 'Tripod';
+      } else if (trackFor === 'character') {
+        el.type = 'character';
+        el.isTrackTarget = true;
+        el.label = '';
+      }
+    }
   }
 
   // ensure targets have parentId and color follows parent
   for (const parent of elements){
     if (!parent || typeof parent !== 'object') continue;
-    if ((parent.type === 'camera' || parent.type === 'character') && (parent.trackToId || parent.trackTo)){
-      const targetId = parent.trackToId || parent.trackTo;
-      const tgt = elements.find(e => e.id === targetId);
-      if (tgt){
+    if (parent.type === 'camera' || parent.type === 'character'){
+      const targetIds = getTrackTargetIds(parent);
+      for (const targetId of targetIds){
+        const tgt = elements.find(e => e.id === targetId);
+        if (!tgt) continue;
         if (!tgt.parentId) tgt.parentId = parent.id;
-        // mark character targets (if applicable)
-        if (parent.type === 'character') tgt.isTrackTarget = true;
-
-        // keep target color matched to parent (source of truth is parent)
+        if (parent.type === 'character' || parent.type === 'camera') tgt.isTrackTarget = true;
+        if (parent.type === 'camera') tgt.type = 'camera';
+        else if (parent.type === 'character') tgt.type = 'character';
         if (parent.color) tgt.color = parent.color;
       }
+      setTrackTargetIds(parent, targetIds.filter(targetId => elements.some(e => e.id === targetId)));
     }
   }
 
@@ -552,8 +608,8 @@ function updateElement(id, patch){
       if (parent && (parent.type === 'camera' || parent.type === 'character')){
         parent.color = el.color;
         // keep the linked target color matched too
-        if (parent.trackToId){
-          const tgt = state.elements.find(e => e.id === parent.trackToId);
+        for (const targetId of getTrackTargetIds(parent)){
+          const tgt = state.elements.find(e => e.id === targetId);
           if (tgt) tgt.color = parent.color;
         }
       }
@@ -561,8 +617,8 @@ function updateElement(id, patch){
 
     // If a parent was edited, push color to its linked target
     if (el.type === 'camera' || el.type === 'character'){
-      if (el.trackToId){
-        const tgt = state.elements.find(e => e.id === el.trackToId);
+      for (const targetId of getTrackTargetIds(el)){
+        const tgt = state.elements.find(e => e.id === targetId);
         if (tgt){
           tgt.color = el.color;
           if (!tgt.parentId) tgt.parentId = el.id;
@@ -660,22 +716,22 @@ function deleteSelected(){
     const sel = state.elements.find(e => e.id === id);
     if (!sel) continue;
 
-    if ((sel.type === 'character' || sel.type === 'camera') && sel.trackToId){
-      extraDeleteIds.add(sel.trackToId);
+    if (sel.type === 'character' || sel.type === 'camera'){
+      for (const targetId of getTrackTargetIds(sel)) extraDeleteIds.add(targetId);
     }
 
     if ((sel.type === 'trackTarget' || sel.isTrackTarget) && sel.parentId){
       const parent = state.elements.find(e => e.id === sel.parentId);
-      if (parent && parent.trackToId === sel.id){
-        parent.trackToId = null;
+      if (parent){
+        removeTrackTargetId(parent, sel.id);
       }
     }
   }
 
   const idsToDelete = new Set([...selectedIds, ...extraDeleteIds]);
   for (const el of state.elements){
-    if ((el.type === 'character' || el.type === 'camera') && el.trackToId && idsToDelete.has(el.trackToId) && !idsToDelete.has(el.id)){
-      el.trackToId = null;
+    if ((el.type === 'character' || el.type === 'camera') && !idsToDelete.has(el.id)){
+      setTrackTargetIds(el, getTrackTargetIds(el).filter(targetId => !idsToDelete.has(targetId)));
     }
   }
 
@@ -799,23 +855,31 @@ function drawTrackArrows(){
   ctx.fillStyle = 'rgba(17,17,17,0.55)';
 
   for (const src of state.elements){
-    if ((src.type !== 'camera' && src.type !== 'character') || !src.trackToId) continue;
-    const target = state.elements.find(e => e.id === src.trackToId);
-    if (!target) continue;
+    if (src.type !== 'camera' && src.type !== 'character') continue;
+    const targetIds = getTrackTargetIds(src);
+    if (!targetIds.length) continue;
 
-    const a = worldToScreen(src.x, src.y);
-    const b = worldToScreen(target.x, target.y);
-
-    const ax = a.x * dpr, ay = a.y * dpr;
-    const bx = b.x * dpr, by = b.y * dpr;
+    const points = [{ x: src.x, y: src.y }];
+    for (const targetId of targetIds){
+      const target = state.elements.find(e => e.id === targetId);
+      if (target) points.push({ x: target.x, y: target.y });
+    }
+    if (points.length < 2) continue;
 
     const mode = src.trackMode || 'to';
 
-    const dx = bx - ax;
-    const dy = by - ay;
-    const len = Math.hypot(dx, dy) || 1;
-    const ux = dx / len;
-    const uy = dy / len;
+    for (let i = 0; i < points.length - 1; i++){
+      const a = worldToScreen(points[i].x, points[i].y);
+      const b = worldToScreen(points[i + 1].x, points[i + 1].y);
+
+      const ax = a.x * dpr, ay = a.y * dpr;
+      const bx = b.x * dpr, by = b.y * dpr;
+
+      const dx = bx - ax;
+      const dy = by - ay;
+      const len = Math.hypot(dx, dy) || 1;
+      const ux = dx / len;
+      const uy = dy / len;
 
     if (mode === 'circle'){
       const cx = (ax + bx) / 2;
@@ -876,6 +940,7 @@ function drawTrackArrows(){
       ctx.lineTo(sx - headLen * Math.cos(angleStart + headAng), sy - headLen * Math.sin(angleStart + headAng));
       ctx.closePath();
       ctx.fill();
+    }
     }
   }
 
@@ -959,18 +1024,64 @@ function getElementWorldBounds(el){
   };
 }
 
+function getElementFrameBounds(el){
+  const b = getElementWorldBounds(el);
+
+  let minX = b.minX;
+  let maxX = b.maxX;
+  let minY = b.minY;
+  let maxY = b.maxY;
+
+  if (el.type === 'camera' || el.type === 'character'){
+    for (const targetId of getTrackTargetIds(el)){
+      const target = state.elements.find(e => e.id === targetId);
+      if (!target) continue;
+      minX = Math.min(minX, el.x, target.x);
+      maxX = Math.max(maxX, el.x, target.x);
+      minY = Math.min(minY, el.y, target.y);
+      maxY = Math.max(maxY, el.y, target.y);
+    }
+  }
+
+  const text = getElementLabelText(el);
+  if (text && el.type !== 'label'){
+    const dx = (typeof el.labelDx === 'number') ? el.labelDx : 0;
+    const dy = (typeof el.labelDy === 'number') ? el.labelDy : getDefaultLabelOffset(el).dy;
+    const labelX = el.x + dx;
+    const labelY = el.y + dy;
+    const labelHalfW = Math.max(36, Math.min(140, text.length * 4.5));
+    const labelH = 18;
+
+    minX = Math.min(minX, labelX - labelHalfW);
+    maxX = Math.max(maxX, labelX + labelHalfW);
+    minY = Math.min(minY, labelY);
+    maxY = Math.max(maxY, labelY + labelH);
+  }
+
+  return { minX, maxX, minY, maxY };
+}
+
 function zoomToExtents(){
   const items = state.elements.filter(el => el.type !== 'trackTarget' && !el.isTrackTarget);
   if (!items.length) return;
 
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   for (const el of items){
-    const b = getElementWorldBounds(el);
+    const b = getElementFrameBounds(el);
     minX = Math.min(minX, b.minX);
     minY = Math.min(minY, b.minY);
     maxX = Math.max(maxX, b.maxX);
     maxY = Math.max(maxY, b.maxY);
   }
+
+  const width = Math.max(80, maxX - minX);
+  const height = Math.max(80, maxY - minY);
+  const worldBuffer = Math.max(20, Math.min(80, Math.max(width, height) * 0.10));
+
+  minX -= worldBuffer;
+  minY -= worldBuffer;
+  maxX += worldBuffer;
+  maxY += worldBuffer;
 
   const rect = canvas.getBoundingClientRect();
 
@@ -983,14 +1094,15 @@ function zoomToExtents(){
   const usableW = Math.max(1, rect.width - safeLeft - safeRight);
   const usableH = Math.max(1, rect.height - safeTop - safeBottom);
 
-  const width = Math.max(80, maxX - minX);
-  const height = Math.max(80, maxY - minY);
-  const pad = 48;
+  const framedWidth = Math.max(80, maxX - minX);
+  const framedHeight = Math.max(80, maxY - minY);
+  const pad = 40;
+  const maxFrameScale = 2.5;
 
   const targetScale = clamp(
-    Math.min((usableW - pad * 2) / width, (usableH - pad * 2) / height),
+    Math.min((usableW - pad * 2) / framedWidth, (usableH - pad * 2) / framedHeight),
     ZOOM_STEPS[0],
-    ZOOM_STEPS[ZOOM_STEPS.length - 1]
+    Math.min(maxFrameScale, ZOOM_STEPS[ZOOM_STEPS.length - 1])
   );
 
   const cx = (minX + maxX) / 2;
@@ -1060,9 +1172,9 @@ function draw(){
 function drawElement(el){
   // Track targets (camera trackTarget or camera element with isTrackTarget) inherit color from their parent camera (live)
   let inheritedColor = null;
-  if (el.type === 'trackTarget' || el.isTrackTarget){
+  if (isTrackTargetEl(el)){
     const parent = state.elements.find(e => e.id === (el.parentId || '')) ||
-                   state.elements.find(e => (e.type === 'camera') && e.trackToId === el.id);
+                   state.elements.find(e => (e.type === 'camera' || e.type === 'character') && getTrackTargetIds(e).includes(el.id));
     if (parent && (parent.type === 'camera' || parent.type === 'character')) inheritedColor = parent.color || null;
   }
 
@@ -1097,7 +1209,7 @@ ctx.fillStyle = (inheritedColor || el.color) || '#999';
   ctx.strokeStyle = 'rgba(255,255,255,0.18)';
   ctx.lineWidth = 2 * dpr;
 
-  const drawAsType = (el.type === 'trackTarget') ? (el.trackFor || 'camera') : el.type;
+  const drawAsType = isTrackTargetEl(el) ? (el.trackFor || el.type || 'camera') : el.type;
 
   if (drawAsType === 'character'){
     const r = (Math.max(el.width||40, el.height||40) / 2) * el.scaleX * view.scale * dpr;
@@ -1426,7 +1538,7 @@ function hitTest(worldX, worldY){
 
 function labelBoundsScreen(el){
   if (!el) return null;
-  if (el.type === 'trackTarget') return null;
+  if (isTrackTargetEl(el)) return null;
   const text = getElementLabelText(el);
   if (!text) return null;
 
@@ -2082,9 +2194,9 @@ if (pTrackMode)if (pTrackMode){
   if (!el) return;
 
   // If selecting a track target (camera trackTarget or character isTrackTarget), update the parent
-  if (el.type === 'trackTarget' || el.isTrackTarget){
+  if (isTrackTargetEl(el)){
     const parent = state.elements.find(e => e.id === (el.parentId || null)) ||
-                   state.elements.find(e => (e.type === 'camera' || e.type === 'character') && e.trackToId === el.id);
+                   state.elements.find(e => (e.type === 'camera' || e.type === 'character') && getTrackTargetIds(e).includes(el.id));
     if (!parent) return;
     parent.trackMode = pTrackMode.value;
     saveToStorage();
@@ -2092,7 +2204,7 @@ if (pTrackMode)if (pTrackMode){
     return;
   }
 
-  if (el.type !== 'camera' && el.type !== 'character') return;
+  if (el.type !== 'camera' && el.type !== 'character' && el.type !== 'trackTarget') return;
   el.trackMode = pTrackMode.value;
   saveToStorage();
   draw();
@@ -2104,7 +2216,7 @@ if (btnTrackTo){
   btnTrackTo.addEventListener('click', () => {
   const el = getSelected();
   if (!el) return;
-  if (el.type !== 'camera' && el.type !== 'character') return;
+  if (el.type !== 'camera' && el.type !== 'character' && el.type !== 'trackTarget') return;
   createTrackTargetFor(el);
 });
 }
@@ -2174,7 +2286,7 @@ function updateSceneNumber(val){
 
   // keep all cameras in this scene synced to the scene number
   state.elements.forEach(e=>{
-    if (e.type === 'camera'){
+    if (e.type === 'camera' && !e.isTrackTarget){
       e.sceneNumber = val;
     }
   });
@@ -2215,7 +2327,7 @@ function loadSceneIntoState(sceneId){
 
   // sync camera scene numbers to this scene
   const sceneNum = target.sceneNumber || '';
-  state.elements.forEach(e=>{ if (e.type === 'camera') e.sceneNumber = sceneNum; });
+  state.elements.forEach(e=>{ if (e.type === 'camera' && !e.isTrackTarget) e.sceneNumber = sceneNum; });
 
   const v = target.view || { scale: 1, offsetX: 0, offsetY: 0 };
   view.scale = v.scale ?? 1;
@@ -2263,7 +2375,7 @@ function duplicateActiveScene(){
 
   if (Array.isArray(copy.elements)){
     copy.elements.forEach(el => {
-      if (el && el.type === 'camera') el.sceneNumber = '';
+      if (el && el.type === 'camera' && !el.isTrackTarget) el.sceneNumber = '';
     });
   }
 
@@ -2339,7 +2451,7 @@ function syncPropsUI(skipFocusPreserve=false){
   propsEmpty.classList.add('hidden');
 
   // Track target: move/rotate only (no properties) - but allow track direction toggle
-  if (el.type === 'trackTarget'){
+  if (isTrackTargetEl(el)){
     propsEmpty.classList.add('hidden');
     propsForm.classList.remove('hidden');
     cameraFields.classList.remove('hidden');
@@ -2353,14 +2465,15 @@ function syncPropsUI(skipFocusPreserve=false){
     camFieldChildren.forEach(r=>r.classList.add('hidden'));
     if (rowCameraColor) rowCameraColor.classList.remove('hidden');
 
-    if (rowTrackTo) rowTrackTo.classList.add('hidden');
+    if (rowTrackTo) rowTrackTo.classList.remove('hidden');
+    if (btnTrackTo) btnTrackTo.textContent = getTrackTargetIds(el).length ? 'Add Track Point' : 'Track To...';
     if (rowTrackMode) rowTrackMode.classList.remove('hidden');
     if (rowCameraColor) rowCameraColor.classList.remove('hidden');
 
     const owner = getColorOwner(el);
     syncPaletteSelection(owner?.color);
 
-    const parent = state.elements.find(e => (e.type === 'camera' || e.type === 'character') && e.trackToId === el.id);
+    const parent = state.elements.find(e => (e.type === 'camera' || e.type === 'character') && getTrackTargetIds(e).includes(el.id));
     if (pTrackMode) pTrackMode.value = (parent?.trackMode || 'to');
 
     return;
@@ -2368,9 +2481,13 @@ function syncPropsUI(skipFocusPreserve=false){
 
   propsForm.classList.remove('hidden');
 
-  const isCamera = el.type === 'camera';
+  const isCamera = el.type === 'camera' && !el.isTrackTarget;
   const isCharacter = el.type === 'character';
   const isWall = el.type === 'wall';
+
+  if (btnTrackTo && (isCamera || isCharacter)) {
+    btnTrackTo.textContent = getTrackTargetIds(el).length ? 'Add Track Point' : 'Track To...';
+  }
 
   const rowCharName = document.getElementById('row-character-name');
   const rowRotateToSpeaker = document.getElementById('row-rotate-to-speaker');
