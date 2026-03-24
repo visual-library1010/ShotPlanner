@@ -6,7 +6,7 @@ function getNextSetupNumber(){
   return Math.max(...nums)+1;
 }
 
-const APP_VERSION = "v183";
+const APP_VERSION = "v185";
 
 function getCanvasCenterWorld(){
   const rect = canvas.getBoundingClientRect();
@@ -213,7 +213,7 @@ const STORAGE_KEY = 'shot-planner-scenes-v1';
 
 
 function getElementLabelText(el){
-  if (!el || el.type === 'label' || el.isTrackTarget) return '';
+  if (!el || el.type === 'label' || (el.isTrackTarget && el.type === 'camera')) return '';
   if (el.type === 'camera'){
     const shotNum = (el.shotNumber || '').toString().trim();
     const shotType = (el.shotType || '').toString().trim();
@@ -1538,7 +1538,7 @@ function hitTest(worldX, worldY){
 
 function labelBoundsScreen(el){
   if (!el) return null;
-  if (isTrackTargetEl(el)) return null;
+  if (isTrackTargetEl(el) && el.type === 'camera') return null;
   const text = getElementLabelText(el);
   if (!text) return null;
 
@@ -2450,8 +2450,8 @@ function syncPropsUI(skipFocusPreserve=false){
 
   propsEmpty.classList.add('hidden');
 
-  // Track target: move/rotate only (no properties) - but allow track direction toggle
-  if (isTrackTargetEl(el)){
+  // Camera track target: move/rotate only (no other properties) - but allow track direction toggle
+  if (isTrackTargetEl(el) && el.type === 'camera'){
     propsEmpty.classList.add('hidden');
     propsForm.classList.remove('hidden');
     cameraFields.classList.remove('hidden');
